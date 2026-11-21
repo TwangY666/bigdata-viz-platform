@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark" data-rail="closed" data-grid="on">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>数据分析看板</title>
+<meta name="description" content="数据分析看板 —— 指标、图表与明细的统一分析工作台。">
+<meta name="theme-color" content="#070C12">
+<link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+<link rel="stylesheet" href="/assets/css/shell.css">
+<script>
+(function () {
+  try {
+    var root = document.documentElement;
+    var saved = localStorage.getItem('console.theme');
+    var theme = saved === 'light' || saved === 'dark'
+      ? saved
+      : (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+    root.setAttribute('data-theme', theme);
+    if (localStorage.getItem('console.grid') === 'off') root.setAttribute('data-grid', 'off');
+    if (localStorage.getItem('console.rail') === 'open' && window.innerWidth >= 900) {
+      root.setAttribute('data-rail', 'open');
+    }
+  } catch (e) {}
+})();
+</script>
+</head>
+<body>
+<a class="skip-link" href="#canvas">跳到主内容</a>
+
+<div class="ambient" aria-hidden="true">
+  <span class="ambient__wash"></span>
+  <span class="ambient__grain"></span>
+</div>
+
+<div class="app">
+
+  <header class="topbar">
+    <div class="topbar__lead">
+      <button class="catalog-trigger" type="button" id="rail-toggle"
+              aria-controls="rail" aria-expanded="false" aria-label="打开数据集目录" title="数据集目录  [">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6.5h16M4 12h16M4 17.5h10"/><circle cx="18.5" cy="17.5" r="2.6"/><path d="M20.4 19.4L22 21"/></svg>
+        <span class="catalog-trigger__label">数据集目录</span>
+        <span class="catalog-trigger__count" id="catalog-badge">13</span>
+      </button>
+
+      <a class="mark" href="/" aria-label="数据分析看板 首页">
+        <span class="mark__glyph" aria-hidden="true">
+          <svg viewBox="0 0 32 32">
+            <defs>
+              <linearGradient id="markGrad" x1="0" y1="1" x2="1" y2="0">
+                <stop offset="0" stop-color="var(--c-series-4)"/>
+                <stop offset="0.55" stop-color="var(--site-accent)"/>
+                <stop offset="1" stop-color="var(--c-series-5)"/>
+              </linearGradient>
+            </defs>
+            <rect x="1.6" y="1.6" width="28.8" height="28.8" rx="8.4"
+                  fill="none" stroke="url(#markGrad)" stroke-width="1.9"/>
+            <path d="M7 21.5l4.6-6.2 4.1 3.4 5-8.2 4.3 5.6"
+                  fill="none" stroke="url(#markGrad)" stroke-width="2.3"
+                  stroke-linecap="round" stroke-linejoin="round"/>
+            <circle cx="25" cy="16.1" r="2.15" fill="var(--site-accent)"/>
+          </svg>
+        </span>
+        <span class="mark__text">
+          <strong class="mark__name">数据分析看板</strong>
+          <span class="mark__sub">ANALYTICS CONSOLE</span>
+        </span>
+      </a>
+    </div>
+
+    <div class="topbar__slot" data-slot="topbar-center">
+      <span class="now-none" id="now-none">未选择数据集</span>
+      <div class="now" id="now" hidden>
+        <span class="now__dot" id="now-dot" aria-hidden="true"></span>
+        <span class="now__name" id="now-name"></span>
+        <span class="now__state" id="now-state">内容待配置</span>
+        <button class="now__clear" type="button" id="now-clear" aria-label="清除当前选择" title="清除选择">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="topbar__tools">
+      <button class="icon-btn" type="button" id="grid-toggle"
+              aria-pressed="true" aria-label="切换画布网格" title="画布网格  G">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/><rect x="3" y="3" width="18" height="18" rx="2.5"/></svg>
+      </button>
+      <button class="icon-btn" type="button" id="theme-toggle"
+              aria-pressed="false" aria-label="切换浅色主题" title="主题  T">
+        <svg class="i-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.2A8.2 8.2 0 019.8 4a8.4 8.4 0 106.4 12.6 8.3 8.3 0 003.8-2.4z"/></svg>
+        <svg class="i-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.1"/><path d="M12 2.6v2.3M12 19.1v2.3M2.6 12h2.3M19.1 12h2.3M5.4 5.4l1.6 1.6M17 17l1.6 1.6M18.6 5.4L17 7M7 17l-1.6 1.6"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="app__body">
+    <div class="scrim" id="scrim" hidden></div>
+
+    <aside class="rail" id="rail" aria-label="数据集目录">
+      <div class="rail__inner">
+        <div class="catalog">
+          <div class="catalog__head">
+            <div class="search">
+              <svg class="search__icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.2 15.2L21 21"/></svg>
+              <input class="search__input" id="catalog-search" type="search"
+                     placeholder="搜索名称 / 字段 / 分析方向"
+                     aria-label="搜索数据集" autocomplete="off" spellcheck="false">
+              <button class="search__clear" type="button" id="search-clear" aria-label="清除搜索词" hidden>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+              </button>
+              <kbd class="search__kbd" aria-hidden="true">/</kbd>
+            </div>
+            <p class="catalog__count" id="catalog-count" role="status"></p>
+          </div>
+
+          <div class="catalog__list" id="catalog-list" role="listbox" aria-label="候选数据集"></div>
+
+          <div class="catalog__empty" id="catalog-empty" hidden>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.2 15.2L21 21M8 10.5h5"/></svg>
+            <p class="catalog__empty-title">没有匹配的数据集</p>
+            <p class="catalog__empty-query" id="catalog-empty-query"></p>
+            <button class="ghost-btn" type="button" id="empty-clear">清除搜索词</button>
+          </div>
+
+          <div class="rail__foot">
+            <span class="hint"><kbd>↑</kbd><kbd>↓</kbd> 移动</span>
+            <span class="hint"><kbd>Enter</kbd> 选择</span>
+            <span class="hint"><kbd>Esc</kbd> 关闭</span>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <main class="canvas" id="canvas" tabindex="-1">
+      <div class="canvas__surface" aria-hidden="true">
+        <span class="canvas__marks"></span>
+      </div>
+      <div class="canvas__grid" data-slot="canvas">
+        <div class="canvas__hint" id="canvas-hint">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"/><path d="M21 4v16"/></svg>
+          <p class="canvas__hint-title">从左侧目录选择一个数据集</p>
+          <p class="canvas__hint-sub">点击「数据集目录」或按 <kbd>/</kbd> 搜索 · 13 个候选 · 全部看板已就绪</p>
+        </div>
+        <section class="plate" id="plate" hidden aria-live="polite"></section>
+      </div>
+
+      <section class="dash" id="dash" hidden aria-label="数据看板">
+        <header class="dash__head">
+          <p class="dash__eyebrow"><span class="dash__eyebrow-dot" aria-hidden="true"></span>校园学生类 · 看板</p>
+          <h2 class="dash__title" id="dash-title"></h2>
+          <p class="dash__meta" id="dash-meta"></p>
+        </header>
+
+        <div class="dash__bar" role="region" aria-label="看板控制区">
+          <div class="bar-group">
+            <label class="ctl">
+              <span class="ctl__label">数据源</span>
+              <select class="ctl__input" id="src-select"></select>
+            </label>
+            <button class="bar-btn" type="button" id="upload-btn" title="上传 CSV / TSV / JSON 数据文件">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V5M8 8.5l4-4 4 4"/><path d="M4.5 19h15"/></svg>
+              添加数据文件
+            </button>
+            <button class="bar-btn bar-btn--icon" type="button" id="sources-btn" aria-label="管理数据源" title="管理数据源">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="6" rx="7.5" ry="3"/><path d="M4.5 6v12c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3V6"/><path d="M4.5 12c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3"/></svg>
+            </button>
+          </div>
+
+          <div class="bar-group" id="dash-filters"></div>
+
+          <div class="bar-group">
+            <label class="ctl">
+              <span class="ctl__label">排序</span>
+              <select class="ctl__input" id="sort-select">
+                <option value="default">默认顺序</option>
+                <option value="desc">数值降序</option>
+                <option value="asc">数值升序</option>
+                <option value="name">名称排序</option>
+              </select>
+            </label>
+            <div class="ctl ctl--stepper">
+              <span class="ctl__label">分箱</span>
+              <div class="stepper">
+                <button type="button" id="bin-minus" aria-label="减少分箱数">−</button>
+                <span id="bin-value" aria-live="polite">12</span>
+                <button type="button" id="bin-plus" aria-label="增加分箱数">+</button>
+              </div>
+            </div>
+            <button class="ctl__toggle" type="button" id="labels-toggle" aria-pressed="false" title="在图表上显示数值标签">数值标签</button>
+          </div>
+
+          <div class="bar-group bar-group--end">
+            <button class="bar-btn bar-btn--accent" type="button" id="picker-btn" title="重新选择要显示的图表">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="3.5" width="7" height="7" rx="1.6"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.6"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.6"/><path d="M17 13.5v7M13.5 17h7"/></svg>
+              图表选择
+            </button>
+            <button class="bar-btn" type="button" id="export-csv" title="导出当前筛选后的数据">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v10M8 10.5l4 4 4-4"/><path d="M5 19h14"/></svg>
+              导出 CSV
+            </button>
+            <button class="bar-btn bar-btn--icon" type="button" id="reset-btn" aria-label="重置筛选与显示选项" title="重置筛选与显示选项">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 12a7.5 7.5 0 107.5-7.5c-2.6 0-4.9 1.3-6.3 3.2"/><path d="M5 3.5v4.5h4.5"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="kpis" id="dash-kpis"></div>
+        <div class="dash__grid" id="dash-grid"></div>
+        <p class="dash__foot" id="dash-foot"></p>
+      </section>
+    </main>
+  </div>
+
+</div>
+
+<div class="modal" id="picker" hidden>
+  <div class="modal__scrim" data-close="picker"></div>
+  <div class="modal__panel modal__panel--wide" role="dialog" aria-modal="true" aria-labelledby="picker-title">
+    <header class="modal__head">
+      <div class="modal__titles">
+        <p class="modal__eyebrow">数据已就绪 · 选择可视化图表</p>
+        <h2 id="picker-title"></h2>
+        <p class="modal__sub" id="picker-sub"></p>
+      </div>
+      <button class="icon-btn" type="button" data-close="picker" aria-label="关闭图表选择">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </header>
+    <div class="modal__body">
+      <div class="picker__fields" id="picker-fields"></div>
+      <div class="picker__grid" id="picker-grid"></div>
+    </div>
+    <footer class="modal__foot">
+      <div class="modal__foot-left">
+        <button class="ghost-btn" type="button" id="picker-all">全选</button>
+        <button class="ghost-btn" type="button" id="picker-none">清空</button>
+        <span class="picker__count" id="picker-count" role="status"></span>
+      </div>
+      <div class="modal__foot-right">
+        <button class="ghost-btn" type="button" id="picker-skip" data-autofocus>跳过 · 显示全部图表</button>
+        <button class="primary-btn" type="button" id="picker-apply">生成看板</button>
+      </div>
+    </footer>
+  </div>
+</div>
+
+<div class="modal" id="upload" hidden>
+  <div class="modal__scrim" data-close="upload"></div>
+  <div class="modal__panel" role="dialog" aria-modal="true" aria-labelledby="upload-title">
+    <header class="modal__head">
+      <div class="modal__titles">
+        <p class="modal__eyebrow">手动添加数据</p>
+        <h2 id="upload-title">上传数据文件</h2>
+        <p class="modal__sub">支持 CSV / TSV / JSON · 自动识别 UTF-8 / GBK 编码 · 表头模糊匹配 · 不超过 8 MB</p>
+      </div>
+      <button class="icon-btn" type="button" data-close="upload" aria-label="关闭上传">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </header>
+    <div class="modal__body">
+      <div id="upload-choose">
+        <div class="dropzone" id="dropzone" role="button" tabindex="0" aria-label="拖拽或点击选择数据文件">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V5M8 8.5l4-4 4 4"/><path d="M4.5 19h15"/></svg>
+          <p class="dropzone__title">拖拽文件到此处，或点击选择</p>
+          <p class="dropzone__sub" id="upload-hint"></p>
+        </div>
+        <div class="upload__actions">
+          <button class="primary-btn" type="button" id="upload-pick" data-autofocus>选择文件</button>
+          <button class="ghost-btn" type="button" id="upload-template">下载字段模板 CSV</button>
+        </div>
+      </div>
+      <div id="upload-preview" hidden>
+        <p class="upload__meta" id="upload-file-meta"></p>
+        <div class="upload__map" id="upload-map"></div>
+        <div class="upload__table" id="upload-table"></div>
+        <label class="ctl ctl--block">
+          <span class="ctl__label">数据源名称</span>
+          <input class="ctl__input" type="text" id="upload-name" maxlength="40" autocomplete="off">
+        </label>
+        <div class="upload__actions">
+          <button class="primary-btn" type="button" id="upload-confirm">使用该数据</button>
+          <button class="ghost-btn" type="button" id="upload-again">重新选择</button>
+        </div>
+      </div>
+      <p class="upload__error" id="upload-error" role="alert" hidden></p>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="sources" hidden>
+  <div class="modal__scrim" data-close="sources"></div>
+  <div class="modal__panel" role="dialog" aria-modal="true" aria-labelledby="sources-title">
+    <header class="modal__head">
+      <div class="modal__titles">
+        <p class="modal__eyebrow">数据源管理</p>
+        <h2 id="sources-title">内置与上传的数据</h2>
+        <p class="modal__sub">上传的数据仅保存在本浏览器，可随时删除</p>
+      </div>
+      <button class="icon-btn" type="button" data-close="sources" aria-label="关闭数据源管理">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </header>
+    <div class="modal__body" id="sources-body"></div>
+  </div>
+</div>
+
+<div class="toasts" id="toasts" aria-live="polite"></div>
+<div class="tip" id="tip" hidden></div>
+<input type="file" id="file-input" accept=".csv,.tsv,.json,.txt,text/csv,application/json" hidden>
+
+<script src="/assets/js/data.js" defer></script>
+<script src="/assets/js/charts.js" defer></script>
+<script src="/assets/js/dash.js" defer></script>
+<script src="/assets/js/catalog.js" defer></script>
+<script src="/assets/js/shell.js" defer></script>
+</body>
+</html>
