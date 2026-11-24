@@ -2,6 +2,9 @@
 (function () {
   'use strict';
 
+  var MAX_ROWS = 300000;
+  var MAX_FILE_BYTES = 64 * 1048576;
+
   var SUBJECTS = ['数学', '语文', '英语', '物理', '化学'];
   var WEEK = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
   var IRIS_FEATURES = ['花萼长', '花萼宽', '花瓣长', '花瓣宽'];
@@ -852,7 +855,11 @@
         r['季节'] = bd ? seasonOf(bd) : '';
         var bh = num(r['小时']);
         r['时段'] = bh == null ? '' : bikeSlot(bh);
-        r['日期类型'] = r['是否工作日'] === '是' ? '工作日' : r['是否工作日'] === '否' ? '周末' : '';
+        if (r['是否工作日'] !== '是' && r['是否工作日'] !== '否' && bd) {
+          var weekday = dayIndex(bd);
+          r['是否工作日'] = weekday >= 1 && weekday <= 5 ? '是' : '否';
+        }
+        r['日期类型'] = r['是否工作日'] === '是' ? '工作日' : r['是否工作日'] === '否' ? '非工作日' : '';
         r['工作'] = r['是否工作日'] === '是';
       } else if (id === 'tea') {
         var td = String(r['下单时间'] || '');
@@ -863,7 +870,8 @@
         var th = r['小时'];
         r['时段'] = th == null || !isFinite(th) ? ''
           : (th < 6 ? '凌晨' : th < 12 ? '上午' : th < 18 ? '下午' : '晚间');
-        var qty = num(r['数量']) || 1;
+        var qty = num(r['数量']);
+        if (qty == null) qty = 1;
         if (num(r['金额']) == null && num(r['价格']) != null) r['金额'] = Math.round(num(r['价格']) * qty * 100) / 100;
         if (num(r['价格']) == null && num(r['金额']) != null && qty > 0) r['价格'] = Math.round(num(r['金额']) / qty * 100) / 100;
         r['外卖'] = r['渠道'] != null && r['渠道'] !== '' && r['渠道'] !== '到店点单';
@@ -875,7 +883,7 @@
         var mp = num(r['出场时间']);
         r['每36分钟得分'] = pts != null && mp != null && mp > 0 ? Math.round(pts / mp * 36 * 10) / 10 : null;
         r['得分档'] = pts == null ? '' : scoreBand(pts);
-        r['两双'] = pts != null && pts >= 10 && ((reb != null && reb >= 10) || (ast != null && ast >= 10));
+        r['两双'] = [pts, ast, reb, stl, blk].filter(function (v) { return v != null && v >= 10; }).length >= 2;
       } else if (id === 'movies') {
         var year = num(r['上映年份']), score = num(r['评分']), votes = num(r['评分人数']);
         r['年代'] = year == null ? '' : decadeOf(year);
@@ -978,20 +986,63 @@
     return counts[0][1] > 0 ? counts[0][0] : ',';
   }
 
-  function parseCSV(text) {
+  function collectRows(lines, headers, delim, from, to, out) {
+    for (var i = from; i < to; i++) {
+      var cells = splitLine(lines[i], delim);
+      var obj = {};
+      for (var j = 0; j < headers.length; j++) obj[headers[j]] = cells[j] == null ? '' : cells[j].trim();
+      out.push(obj);
+    }
+  }
+
+  function csvParts(text) {
     var clean = text.replace(/^﻿/, '').replace(/\r\n?/g, '\n');
     var delim = detectDelim(clean);
     var lines = clean.split('\n').filter(function (l) { return l.trim() !== ''; });
     if (lines.length < 2) return { error: '文件至少需要表头与一行数据' };
-    var headers = splitLine(lines[0], delim).map(function (h) { return h.trim(); });
+    return {
+      lines: lines, delim: delim,
+      headers: splitLine(lines[0], delim).map(function (h) { return h.trim(); }),
+      format: delim === '\t' ? 'TSV' : 'CSV'
+    };
+  }
+
+  function parseCSV(text) {
+    var parts = csvParts(text);
+    if (parts.error) return parts;
     var rows = [];
-    for (var i = 1; i < lines.length; i++) {
-      var cells = splitLine(lines[i], delim);
-      var obj = {};
-      headers.forEach(function (h, j) { obj[h] = (cells[j] == null ? '' : cells[j].trim()); });
-      rows.push(obj);
-    }
-    return { headers: headers, rows: rows, format: delim === '\t' ? 'TSV' : 'CSV' };
+    collectRows(parts.lines, parts.headers, parts.delim, 1, parts.lines.length, rows);
+    return { headers: parts.headers, rows: rows, format: parts.format };
+  }
+
+  /* 大文件分块解析：每块之间让出主线程，避免界面卡死 */
+  /* 后台标签页里 setTimeout 会被浏览器降频到每秒甚至每分钟一次，改用消息任务让出 */
+  var yieldTask = (function () {
+    if (typeof MessageChannel !== 'function') return function (fn) { setTimeout(fn, 0); };
+    var ch = new MessageChannel(), queue = [];
+    ch.port1.onmessage = function () { var fn = queue.shift(); if (fn) fn(); };
+    return function (fn) { queue.push(fn); ch.port2.postMessage(0); };
+  })();
+
+  function parseChunked(text, filename, onProgress) {
+    return new Promise(function (resolve) {
+      var name = String(filename || '').toLowerCase();
+      var trimmed = text.replace(/^﻿/, '').trim();
+      if (!trimmed) { resolve({ error: '文件内容为空' }); return; }
+      if (/\.json$/.test(name) || trimmed[0] === '[' || trimmed[0] === '{') { resolve(parseJSON(trimmed)); return; }
+      var parts = csvParts(text);
+      if (parts.error) { resolve(parts); return; }
+      var rows = [], i = 1, total = parts.lines.length - 1;
+      function step() {
+        var end = Math.min(parts.lines.length, i + 20000);
+        collectRows(parts.lines, parts.headers, parts.delim, i, end, rows);
+        i = end;
+        if (onProgress) onProgress(rows.length, total);
+        if (i < parts.lines.length) yieldTask(step);
+        else resolve({ headers: parts.headers, rows: rows, format: parts.format });
+      }
+      step();
+    });
   }
 
   function parseJSON(text) {
@@ -1338,11 +1389,12 @@
       rows.push(r);
     });
     if (!rows.length) return { error: '没有有效数据行', mapped: map, headers: parsed.headers };
-    if (rows.length > 20000) {
-      dropped += rows.length - 20000;
-      rows = rows.slice(0, 20000);
+    var truncated = 0;
+    if (rows.length > MAX_ROWS) {
+      truncated = rows.length - MAX_ROWS;
+      rows = rows.slice(0, MAX_ROWS);
     }
-    return { rows: enrich(id, rows), mapped: map, matchHow: matched.how, unused: matched.unused, present: present, dropped: dropped, headers: parsed.headers };
+    return { rows: enrich(id, rows), mapped: map, matchHow: matched.how, unused: matched.unused, present: present, dropped: dropped, truncated: truncated, headers: parsed.headers };
   }
 
   function presentKeys(id, rows) {
@@ -1394,6 +1446,8 @@
   }
 
   window.DATA = {
+    MAX_ROWS: MAX_ROWS,
+    MAX_FILE_BYTES: MAX_FILE_BYTES,
     SUBJECTS: SUBJECTS,
     WEEK: WEEK,
     IRIS_FEATURES: IRIS_FEATURES,
@@ -1417,6 +1471,8 @@
     seed: seed,
     enrich: enrich,
     parse: parse,
+    parseChunked: parseChunked,
+    yieldTask: yieldTask,
     normalize: normalize,
     presentKeys: presentKeys,
     template: template,

@@ -41,23 +41,32 @@
 
   /* ---------- 聚合工具 ---------- */
 
+  /* 同一批 rows 在一次渲染里被多张图重复取列，只缓存本次渲染的主数据 */
+  var colCache = { rows: null, nums: {}, count: {} };
+  function colBegin(rows) { colCache.rows = rows; colCache.nums = {}; colCache.count = {}; }
   function nums(rows, k) {
+    var primary = colCache.rows === rows;
+    if (primary && colCache.nums[k]) return colCache.nums[k];
     var out = [];
-    rows.forEach(function (r) {
-      var v = r[k];
+    for (var i = 0; i < rows.length; i++) {
+      var v = rows[i][k];
       if (typeof v === 'number' && isFinite(v)) out.push(v);
-    });
+    }
+    if (primary) colCache.nums[k] = out;
     return out;
   }
-  function mean(a) { return a.length ? a.reduce(function (x, y) { return x + y; }, 0) / a.length : 0; }
-  function sum(a) { return a.reduce(function (x, y) { return x + y; }, 0); }
+  function mean(a) { return a.length ? sum(a) / a.length : 0; }
+  function sum(a) { var s = 0; for (var i = 0; i < a.length; i++) s += a[i]; return s; }
   function countBy(rows, k) {
+    var primary = colCache.rows === rows;
+    if (primary && colCache.count[k]) return colCache.count[k];
     var m = {};
-    rows.forEach(function (r) {
-      var v = r[k];
-      if (v == null || v === '') return;
+    for (var i = 0; i < rows.length; i++) {
+      var v = rows[i][k];
+      if (v == null || v === '') continue;
       m[v] = (m[v] || 0) + 1;
-    });
+    }
+    if (primary) colCache.count[k] = m;
     return m;
   }
   function sumBy(rows, k, vk) {
@@ -81,6 +90,10 @@
     Object.keys(s).forEach(function (key) { m[key] = s[key] / n[key]; });
     return m;
   }
+  /* 逐元素比较：Math.min.apply 在十万级数组上会爆栈 */
+  function minOf(a) { var m = Infinity; for (var i = 0; i < a.length; i++) if (a[i] < m) m = a[i]; return m; }
+  function maxOf(a) { var m = -Infinity; for (var i = 0; i < a.length; i++) if (a[i] > m) m = a[i]; return m; }
+  function countStr(n) { return Number(n).toLocaleString('en-US'); }
   function uniq(rows, k) {
     var seen = {}, out = [];
     rows.forEach(function (r) {
@@ -94,6 +107,18 @@
   function entries(m) {
     return Object.keys(m).map(function (k) { return { label: k, value: m[k] }; });
   }
+  /* 上传文件的类别数不受控，超过上限时把长尾并入「其他」，避免渲染上万个图元 */
+  function catEntries(rows, key, cap) {
+    var list = entries(countBy(rows, key));
+    var lim = cap || 24;
+    if (list.length <= lim) return list;
+    var sorted = list.slice().sort(function (a, b) { return b.value - a.value; });
+    var head = sorted.slice(0, lim);
+    var rest = 0;
+    for (var i = lim; i < sorted.length; i++) rest += sorted[i].value;
+    head.push({ label: '其他 ' + (sorted.length - lim) + ' 类', value: rest });
+    return head;
+  }
   function order(list, sort) {
     var out = list.slice();
     if (sort === 'desc') out.sort(function (a, b) { return b.value - a.value; });
@@ -103,11 +128,12 @@
   }
   function hist(vals, bins) {
     if (!vals.length) return { x: [], counts: [] };
-    var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
+    var lo = minOf(vals), hi = maxOf(vals);
+    var nonNeg = lo >= 0;
     var span = hi - lo;
     if (span <= 0) { lo -= 1; hi += 1; span = 2; }
     lo -= span * 0.02; hi += span * 0.02;
-    if (lo < 0 && Math.min.apply(null, vals) >= 0) lo = 0;
+    if (lo < 0 && nonNeg) lo = 0;
     var step = (hi - lo) / bins;
     var counts = new Array(bins).fill(0);
     vals.forEach(function (v) {
@@ -220,11 +246,12 @@
           : (r['编号'] || r['姓名'] || r['订单号'] || r['球员'] || r['片名'] || '')
       });
     });
-    if (points.length > 1600) {
-      var step = Math.ceil(points.length / 1600);
-      points = points.filter(function (_, i) { return i % step === 0; });
-    }
-    return { kind: 'scatter', points: points, groups: groups, xLabel: xLabel, yLabel: yLabel, fmt: fmtMode, xFmt: xFmt };
+    return { kind: 'scatter', points: thinPoints(points), groups: groups, xLabel: xLabel, yLabel: yLabel, fmt: fmtMode, xFmt: xFmt };
+  }
+  function thinPoints(points) {
+    if (points.length <= 1600) return points;
+    var step = Math.ceil(points.length / 1600);
+    return points.filter(function (_, i) { return i % step === 0; });
   }
   function rateBy(rows, key, test) {
     var m = {};
@@ -334,7 +361,7 @@
         build: function (rows) {
           var m = countBy(rows, '性别');
           var list = order(entries(m), 'desc');
-          return { kind: 'donut', slices: list.map(function (e, i) { return { label: e.label, value: e.value, color: C.palette().series[i === 0 ? 3 : 2] }; }), center: { value: String(rows.length), label: '学生数' } };
+          return { kind: 'donut', slices: list.map(function (e, i) { return { label: e.label, value: e.value, color: C.palette().series[i === 0 ? 3 : 2] }; }), center: { value: countStr(rows.length), label: '学生数' } };
         } },
       { id: 'g-credit', name: '学分 × 平均分', desc: '已修学分与成绩的关系', kind: 'scatter', span: 4,
         when: function (p) { return p.indexOf('学分') !== -1 && p.indexOf('平均分') !== -1; },
@@ -347,7 +374,7 @@
             if (typeof r['学分'] !== 'number' || typeof r['平均分'] !== 'number') return;
             pts.push({ x: r['学分'], y: r['平均分'], g: classes.length > 1 ? classes.indexOf(r['班级']) : 0, label: r['姓名'] || '' });
           });
-          return { kind: 'scatter', points: pts, groups: groups, xLabel: '学分', yLabel: '平均分', aria: '学分与平均分散点图' };
+          return { kind: 'scatter', points: thinPoints(pts), groups: groups, xLabel: '学分', yLabel: '平均分', aria: '学分与平均分散点图' };
         } },
       { id: 'g-top', name: '平均分 Top 10', desc: '成绩最高的十名学生', kind: 'hbar', span: 4,
         when: function (p) { return p.indexOf('姓名') !== -1 && p.indexOf('平均分') !== -1; },
@@ -394,14 +421,14 @@
       { id: 'l-cat', name: '分类借阅量', desc: '各书籍分类的借阅次数', kind: 'bar', span: 6,
         when: function (p) { return p.indexOf('书籍分类') !== -1; },
         build: function (rows, ctx) {
-          var list = order(entries(countBy(rows, '书籍分类')), ctx.sort);
+          var list = order(catEntries(rows, '书籍分类'), ctx.sort);
           return { kind: 'bar', x: list.map(function (e) { return e.label; }), series: [{ name: '借阅次数', values: list.map(function (e) { return e.value; }) }], yLabel: '借阅次数' };
         } },
       { id: 'l-share', name: '分类占比', desc: '哪类书最受欢迎', kind: 'donut', span: 6,
         when: function (p) { return p.indexOf('书籍分类') !== -1; },
         build: function (rows, ctx) {
-          var list = order(entries(countBy(rows, '书籍分类')), ctx.sort === 'default' ? 'desc' : ctx.sort);
-          return { kind: 'donut', slices: list.map(function (e) { return { label: e.label, value: e.value }; }), center: { value: String(rows.length), label: '总借阅' } };
+          var list = order(catEntries(rows, '书籍分类'), ctx.sort === 'default' ? 'desc' : ctx.sort);
+          return { kind: 'donut', slices: list.map(function (e) { return { label: e.label, value: e.value }; }), center: { value: countStr(rows.length), label: '总借阅' } };
         } },
       { id: 'l-hour', name: '借阅高峰时段', desc: '一天中各小时的借阅量', kind: 'bar', span: 6,
         when: function (p) { return p.indexOf('小时') !== -1; },
@@ -434,12 +461,12 @@
           var pal = C.palette().series;
           var color = { '按时': pal[4], '超期': pal[2], '在借': pal[7] };
           var list = ['按时', '超期', '在借'].filter(function (k) { return m[k]; }).map(function (k) { return { label: k, value: m[k], color: color[k] }; });
-          return { kind: 'donut', slices: list, center: { value: String(rows.length), label: '借阅记录' } };
+          return { kind: 'donut', slices: list, center: { value: countStr(rows.length), label: '借阅记录' } };
         } },
       { id: 'l-top', name: '热门借阅人 Top 10', desc: '借阅次数最多的读者', kind: 'hbar', span: 6,
         when: function (p) { return p.indexOf('借阅人') !== -1; },
         build: function (rows) {
-          var list = order(entries(countBy(rows, '借阅人')), 'desc').slice(0, 10);
+          var list = order(catEntries(rows, '借阅人'), 'desc').slice(0, 10);
           return { kind: 'hbar', x: list.map(function (e) { return e.label; }), series: [{ name: '借阅次数', values: list.map(function (e) { return e.value; }) }] };
         } },
       { id: 'l-week', name: '星期 × 时段热度', desc: '一周内各时段借阅密度', kind: 'heat', span: 6,
@@ -562,13 +589,15 @@
         when: function (p) { return p.indexOf('日期') !== -1 && p.indexOf('分钟') !== -1; },
         build: function (rows) {
           var dates = uniq(rows, '日期');
+          var dateIdx = {};
+          dates.forEach(function (d, i) { dateIdx[d] = i + 1; });
           var pal = C.palette().series;
           var pts = [];
           rows.forEach(function (r) {
             if (typeof r['分钟'] !== 'number' || !r['日期']) return;
-            pts.push({ x: dates.indexOf(r['日期']) + 1, y: r['分钟'], g: r['是否迟到'] === '是' ? 1 : 0, label: (r['学生'] || '') + ' ' + r['日期'] });
+            pts.push({ x: dateIdx[r['日期']], y: r['分钟'], g: r['是否迟到'] === '是' ? 1 : 0, label: (r['学生'] || '') + ' ' + r['日期'] });
           });
-          return { kind: 'scatter', points: pts, groups: [{ name: '准时', color: pal[0] }, { name: '迟到', color: pal[2] }], xLabel: '日期序号', yLabel: '打卡时刻', fmt: 'time', aria: '打卡时刻散点图' };
+          return { kind: 'scatter', points: thinPoints(pts), groups: [{ name: '准时', color: pal[0] }, { name: '迟到', color: pal[2] }], xLabel: '日期序号', yLabel: '打卡时刻', fmt: 'time', aria: '打卡时刻散点图' };
         } }
     ],
     spending: [
@@ -662,7 +691,7 @@
             .filter(function (s) { return s.value > 0; });
           if (ctx.sort === 'asc') list.sort(function (a, b) { return a.value - b.value; });
           else if (ctx.sort === 'desc') list.sort(function (a, b) { return b.value - a.value; });
-          return { kind: 'donut', slices: list, center: { value: String(rows.length), label: '样本总数' } };
+          return { kind: 'donut', slices: list, center: { value: countStr(rows.length), label: '样本总数' } };
         } },
       { id: 'i-plpw', name: '花瓣长 × 花瓣宽', desc: '花瓣尺寸散点，按品种着色', kind: 'scatter', span: 8,
         when: function (p) { return p.indexOf('花瓣长') !== -1 && p.indexOf('花瓣宽') !== -1; },
@@ -795,7 +824,7 @@
             points.push({ x: r['年龄'], y: r['票价'], g: r['是否幸存'] === '是' ? 0 : 1, label: r['姓名'] || '' });
           });
           if (!points.length) return null;
-          return { kind: 'scatter', points: points, groups: groups, xLabel: '年龄（岁）', yLabel: '票价', fmt: 'money' };
+          return { kind: 'scatter', points: thinPoints(points), groups: groups, xLabel: '年龄（岁）', yLabel: '票价', fmt: 'money' };
         } },
       { id: 't-heat', name: '舱位 × 性别生存率', desc: '不同舱位与性别组合的生存率', kind: 'heat', span: 6,
         when: function (p) { return p.indexOf('舱位') !== -1 && p.indexOf('性别') !== -1 && p.indexOf('是否幸存') !== -1; },
@@ -984,9 +1013,9 @@
       { id: 'o-pay', name: '支付方式占比', desc: '各支付方式的订单数占比', kind: 'donut', span: 4,
         when: function (p) { return p.indexOf('支付方式') !== -1; },
         build: function (rows, ctx) {
-          var list = order(entries(countBy(rows, '支付方式')), ctx.sort === 'default' ? 'desc' : ctx.sort);
+          var list = order(catEntries(rows, '支付方式'), ctx.sort === 'default' ? 'desc' : ctx.sort);
           return { kind: 'donut', slices: list.map(function (e) { return { label: e.label, value: e.value }; }),
-            center: { value: String(rows.length), label: '订单总数' } };
+            center: { value: countStr(rows.length), label: '订单总数' } };
         } },
       { id: 'o-avg', name: '品类客单价', desc: '各品类平均每单金额', kind: 'bar', span: 8,
         when: function (p) { return p.indexOf('商品类别') !== -1 && p.indexOf('金额') !== -1; },
@@ -1032,13 +1061,25 @@
             series: [{ name: cities[0] || '降水量', values: months.map(function (m) { return Math.round(s[m] || 0); }) }],
             fmt: 'sep', yLabel: '降水量（mm）' };
         } },
-      { id: 'w-temp', name: '气温分布', desc: '日均气温落在各区间的记录数', kind: 'hist', span: 6,
-        when: function (p) { return p.indexOf('平均气温') !== -1; },
+      { id: 'w-temp', name: '气温分布', desc: '优先使用平均气温，未提供时使用最高温或最低温', kind: 'hist', span: 6,
+        when: function (p) { return ['平均气温', '最高温', '最低温'].some(function (k) { return p.indexOf(k) !== -1; }); },
         build: function (rows, ctx) {
-          var h = hist(nums(rows, '平均气温'), ctx.bins);
+          var key = ['平均气温', '最高温', '最低温'].filter(function (k) { return ctx.present.indexOf(k) !== -1; })[0];
+          var h = hist(nums(rows, key), ctx.bins);
           if (!h.x.length) return null;
           return { kind: 'hist', x: h.x, series: [{ name: '记录数', values: h.counts, color: C.palette().series[1] }],
-            yLabel: '记录数', xLabel: '气温（℃）' };
+            yLabel: '记录数', xLabel: key + '（℃）', aria: key + '分布直方图' };
+        } },
+      { id: 'w-range', name: '月度高低温对比', desc: '按高低温均有效的记录统计月均值，可按城市筛选', kind: 'line', span: 6,
+        when: function (p) { return p.indexOf('月份') !== -1 && p.indexOf('最高温') !== -1 && p.indexOf('最低温') !== -1; },
+        build: function (rows) {
+          var valid = rows.filter(function (r) { return typeof r['最高温'] === 'number' && typeof r['最低温'] === 'number'; });
+          var months = uniq(valid, '月份');
+          if (!months.length) return null;
+          return { kind: 'line', x: months, series: ['最高温', '最低温'].map(function (key) {
+            var averages = meanBy(valid, '月份', key);
+            return { name: '平均' + key, values: months.map(function (m) { return round2(averages[m]); }) };
+          }), zero: false, yLabel: '气温（℃）', xLabel: '月份', aria: '月度平均高低温对比' };
         } },
       { id: 'w-hum', name: '气温 × 湿度', desc: '按季节着色的温湿度关系', kind: 'scatter', span: 6,
         when: function (p) { return p.indexOf('平均气温') !== -1 && p.indexOf('湿度') !== -1; },
@@ -1083,12 +1124,12 @@
           if (ctx.sort !== 'default') list = order(list, ctx.sort);
           var rainy = rows.filter(function (r) { return r['降雨']; }).length;
           return { kind: 'donut', slices: list,
-            center: { value: rows.length ? C.fmt(rainy / rows.length * 100, 'pct') : '—', label: '降雨记录占比' } };
+            center: { value: nums(rows, '降雨量').length ? C.fmt(rainy / nums(rows, '降雨量').length * 100, 'pct') : '—', label: '有效记录降雨占比' } };
         } },
       { id: 'w-cond', name: '天气状况天数', desc: '各类天气出现的记录数排行', kind: 'hbar', span: 8,
         when: function (p) { return p.indexOf('天气状况') !== -1; },
         build: function (rows, ctx) {
-          var list = order(entries(countBy(rows, '天气状况')), ctx.sort === 'default' ? 'desc' : ctx.sort);
+          var list = order(catEntries(rows, '天气状况'), ctx.sort === 'default' ? 'desc' : ctx.sort);
           if (!list.length) return null;
           return { kind: 'hbar', x: list.map(function (e) { return e.label; }),
             series: [{ name: '记录数', values: list.map(function (e) { return e.value; }), color: C.palette().series[3] }],
@@ -1170,7 +1211,7 @@
           var keys = ['气温', '湿度', '风速', '小时', '租借数量'].filter(function (k) { return ctx.present.indexOf(k) !== -1; });
           return corrSpec(rows, keys, '骑行要素相关性矩阵');
         } },
-      { id: 'b-daytype', name: '工作日 / 周末占比', desc: '两类日期的租借量构成', kind: 'donut', span: 4,
+      { id: 'b-daytype', name: '工作日 / 非工作日占比', desc: '优先使用工作日标记，未提供时按星期推算', kind: 'donut', span: 4,
         when: function (p) { return p.indexOf('日期类型') !== -1 && p.indexOf('租借数量') !== -1; },
         build: function (rows) {
           var s = sumBy(rows, '日期类型', '租借数量');
@@ -1180,13 +1221,13 @@
           return { kind: 'donut', slices: list.map(function (e) { return { label: e.label, value: e.value }; }),
             fmt: 'sep', center: { value: C.fmt(total, 'sep'), label: '总租借量' } };
         } },
-      { id: 'b-compare', name: '工作日 vs 周末', desc: '两类日期各时段的平均租借量', kind: 'grouped', span: 8,
+      { id: 'b-compare', name: '工作日 vs 非工作日', desc: '两类日期各时段的平均租借量', kind: 'grouped', span: 8,
         when: function (p) { return p.indexOf('时段') !== -1 && p.indexOf('日期类型') !== -1 && p.indexOf('租借数量') !== -1; },
         build: function (rows) {
           var present = uniq(rows, '时段');
           var slots = D.BIKE_SLOTS.filter(function (s) { return present.indexOf(s) !== -1; });
           present.forEach(function (s) { if (slots.indexOf(s) === -1) slots.push(s); });
-          var types = ['工作日', '周末'].filter(function (t) { return rows.some(function (r) { return r['日期类型'] === t; }); });
+          var types = ['工作日', '非工作日'].filter(function (t) { return rows.some(function (r) { return r['日期类型'] === t; }); });
           if (!slots.length || types.length < 2) return null;
           var series = types.map(function (t) {
             var m = meanBy(rows.filter(function (r) { return r['日期类型'] === t; }), '时段', '租借数量');
@@ -1264,7 +1305,7 @@
       { id: 'te-channel', name: '渠道订单占比', desc: '小程序 / 外卖 / 到店的订单构成', kind: 'donut', span: 4,
         when: function (p) { return p.indexOf('渠道') !== -1; },
         build: function (rows, ctx) {
-          var list = order(entries(countBy(rows, '渠道')), ctx.sort === 'default' ? 'desc' : ctx.sort);
+          var list = order(catEntries(rows, '渠道'), ctx.sort === 'default' ? 'desc' : ctx.sort);
           if (!list.length) return null;
           var delivery = rows.filter(function (r) { return r['外卖']; }).length;
           return { kind: 'donut', slices: list.map(function (e) { return { label: e.label, value: e.value }; }),
@@ -1302,6 +1343,24 @@
           if (!list.length) return null;
           return { kind: 'hbar', x: list.map(function (r) { return r['球员'] + (r['球队'] ? ' · ' + r['球队'] : ''); }),
             series: [{ name: '场均得分', values: list.map(function (r) { return r['得分']; }), color: C.palette().series[2] }] };
+        } },
+      { id: 'p-assists', name: '助攻榜 Top 10', desc: '场均助攻最高的十名球员', kind: 'hbar', span: 6,
+        when: function (p) { return p.indexOf('球员') !== -1 && p.indexOf('助攻') !== -1; },
+        build: function (rows) {
+          var list = rows.filter(function (r) { return typeof r['助攻'] === 'number'; })
+            .sort(function (a, b) { return b['助攻'] - a['助攻']; }).slice(0, 10);
+          if (!list.length) return null;
+          return { kind: 'hbar', x: list.map(function (r) { return r['球员'] + (r['球队'] ? ' · ' + r['球队'] : ''); }),
+            series: [{ name: '场均助攻', values: list.map(function (r) { return r['助攻']; }), color: C.palette().series[3] }],
+            aria: '球员助攻前十排行' };
+        } },
+      { id: 'p-assist-dist', name: '助攻分布', desc: '球员场均助攻的区间人数分布', kind: 'hist', span: 6,
+        when: function (p) { return p.indexOf('助攻') !== -1; },
+        build: function (rows, ctx) {
+          var h = hist(nums(rows, '助攻'), ctx.bins);
+          if (!h.x.length) return null;
+          return { kind: 'hist', x: h.x, series: [{ name: '球员数', values: h.counts, color: C.palette().series[3] }],
+            yLabel: '球员数', xLabel: '场均助攻', aria: '球员助攻分布直方图' };
         } },
       { id: 'p-pos', name: '各位置平均得分', desc: '五个位置的得分产出对比', kind: 'bar', span: 6,
         when: function (p) { return p.indexOf('位置') !== -1 && p.indexOf('得分') !== -1; },
@@ -1357,7 +1416,7 @@
           var c = countBy(rows, '得分档');
           var list = bands.map(function (s) { return { label: s, value: c[s] || 0 }; });
           if (ctx.sort !== 'default') list = order(list, ctx.sort);
-          return { kind: 'donut', slices: list, center: { value: String(rows.length), label: '球员总数' } };
+          return { kind: 'donut', slices: list, center: { value: countStr(rows.length), label: '球员总数' } };
         } },
       { id: 'p-heat', name: '位置 × 球队得分', desc: '各球队每个位置的平均得分', kind: 'heat', span: 8,
         when: function (p) { return p.indexOf('位置') !== -1 && p.indexOf('球队') !== -1 && p.indexOf('得分') !== -1; },
@@ -1454,7 +1513,7 @@
           var c = countBy(rows, '评分档');
           var list = bands.map(function (b) { return { label: b, value: c[b] || 0 }; });
           if (ctx.sort !== 'default') list = order(list, ctx.sort);
-          return { kind: 'donut', slices: list, center: { value: String(rows.length), label: '影片总数' } };
+          return { kind: 'donut', slices: list, center: { value: countStr(rows.length), label: '影片总数' } };
         } },
       { id: 'mv-top', name: '高分影片 Top 12', desc: '评分最高的影片（同分按热度）', kind: 'hbar', span: 8,
         when: function (p) { return p.indexOf('片名') !== -1 && p.indexOf('评分') !== -1; },
@@ -1484,21 +1543,21 @@
         });
       });
       return [
-        { label: '学生数', value: String(rows.length), sub: uniq(rows, '班级').length + ' 个班级' },
+        { label: '学生数', value: countStr(rows.length), sub: uniq(rows, '班级').length + ' 个班级' },
         { label: '总平均分', value: avg.length ? C.fmt(mean(avg)) : '—', sub: '满分 100' },
-        { label: '挂科人次', value: String(failCount), sub: '低于 60 分', tone: failCount ? 'warn' : 'ok' },
+        { label: '挂科人次', value: countStr(failCount), sub: '低于 60 分', tone: failCount ? 'warn' : 'ok' },
         { label: '挂科率', value: totalScores ? C.fmt(failCount / totalScores * 100, 'pct') : '—', sub: '按科目人次计' },
-        { label: '最高平均分', value: avg.length ? C.fmt(Math.max.apply(null, avg)) : '—', sub: '个人最佳' }
+        { label: '最高平均分', value: avg.length ? C.fmt(maxOf(avg)) : '—', sub: '个人最佳' }
       ];
     },
     library: function (rows) {
       var dur = nums(rows, '时长天数');
       var returned = rows.filter(function (r) { return r['借阅状态'] !== '在借'; }).length;
       var overdue = rows.filter(function (r) { return r['借阅状态'] === '超期'; }).length;
-      var cats = order(entries(countBy(rows, '书籍分类')), 'desc');
+      var cats = order(catEntries(rows, '书籍分类'), 'desc');
       return [
-        { label: '借阅次数', value: String(rows.length), sub: uniq(rows, '月份').length + ' 个月' },
-        { label: '活跃读者', value: String(uniq(rows, '借阅人').length), sub: '去重借阅人' },
+        { label: '借阅次数', value: countStr(rows.length), sub: uniq(rows, '月份').length + ' 个月' },
+        { label: '活跃读者', value: countStr(uniq(rows, '借阅人').length), sub: '去重借阅人' },
         { label: '平均借阅天数', value: dur.length ? C.fmt(mean(dur)) : '—', sub: '已归还记录' },
         { label: '超期率', value: returned ? C.fmt(overdue / returned * 100, 'pct') : '—', sub: '超过 30 天', tone: overdue ? 'warn' : 'ok' },
         { label: '最热门分类', value: cats.length ? cats[0].label : '—', sub: cats.length ? cats[0].value + ' 次' : '' }
@@ -1511,12 +1570,12 @@
       var lateStudents = {};
       rows.forEach(function (r) { if (r['是否迟到'] === '是' && r['学生']) lateStudents[r['学生']] = 1; });
       return [
-        { label: '打卡次数', value: String(rows.length), sub: uniq(rows, '日期').length + ' 天' },
+        { label: '打卡次数', value: countStr(rows.length), sub: uniq(rows, '日期').length + ' 天' },
         { label: '迟到率', value: rows.length ? C.fmt(late / rows.length * 100, 'pct') : '—', sub: late + ' 次迟到', tone: late ? 'warn' : 'ok' },
         { label: amRows.length ? '早间平均打卡' : '平均打卡时刻', value: mins.length ? C.fmt(mean(mins), 'time') : '—',
           sub: amRows.length ? amRows.length + ' 次早间打卡' : '全部打卡' },
-        { label: '涉及迟到学生', value: String(Object.keys(lateStudents).length), sub: '去重人数' },
-        { label: '覆盖学生', value: String(uniq(rows, '学生').length), sub: '打卡名单' }
+        { label: '涉及迟到学生', value: countStr(Object.keys(lateStudents).length), sub: '去重人数' },
+        { label: '覆盖学生', value: countStr(uniq(rows, '学生').length), sub: '打卡名单' }
       ];
     },
     spending: function (rows) {
@@ -1527,18 +1586,18 @@
         { label: '总消费', value: C.fmt(total, 'money'), sub: rows.length + ' 笔' },
         { label: '笔均消费', value: amounts.length ? C.fmt(total / amounts.length, 'money') : '—', sub: '平均每笔' },
         { label: '日均消费', value: days ? C.fmt(total / days, 'money') : '—', sub: days + ' 天' },
-        { label: '最大单笔', value: amounts.length ? C.fmt(Math.max.apply(null, amounts), 'money') : '—', sub: '单笔记账' },
-        { label: '消费类型', value: String(uniq(rows, '消费类型').length), sub: '去重类别' }
+        { label: '最大单笔', value: amounts.length ? C.fmt(maxOf(amounts), 'money') : '—', sub: '单笔记账' },
+        { label: '消费类型', value: countStr(uniq(rows, '消费类型').length), sub: '去重类别' }
       ];
     },
     iris: function (rows, ctx) {
       var pl = nums(rows, '花瓣长'), sl = nums(rows, '花萼长');
       var eta = ctx.present.indexOf('品种') !== -1 ? etaSquared(rows, '品种', '花瓣长') : null;
       return [
-        { label: '样本数', value: String(rows.length), sub: uniq(rows, '品种').length + ' 个品种' },
+        { label: '样本数', value: countStr(rows.length), sub: uniq(rows, '品种').length + ' 个品种' },
         { label: '平均花瓣长', value: pl.length ? C.fmt(mean(pl)) : '—', sub: '单位 cm' },
         { label: '平均花萼长', value: sl.length ? C.fmt(mean(sl)) : '—', sub: '单位 cm' },
-        { label: '花瓣长跨度', value: pl.length ? C.fmt(Math.min.apply(null, pl)) + ' – ' + C.fmt(Math.max.apply(null, pl)) : '—', sub: '最小至最大' },
+        { label: '花瓣长跨度', value: pl.length ? C.fmt(minOf(pl)) + ' – ' + C.fmt(maxOf(pl)) : '—', sub: '最小至最大' },
         { label: '品种区分度', value: eta == null ? '—' : C.fmt(eta * 100, 'pct'),
           sub: '花瓣长组间方差占比', tone: eta != null && eta >= 0.8 ? 'ok' : '' }
       ];
@@ -1551,7 +1610,7 @@
       var missing = rows.length - ages.length;
       var fares = nums(rows, '票价');
       return [
-        { label: '乘客数', value: String(rows.length), sub: uniq(rows, '舱位').length + ' 个舱位等级' },
+        { label: '乘客数', value: countStr(rows.length), sub: uniq(rows, '舱位').length + ' 个舱位等级' },
         { label: '总体生存率', value: rows.length ? C.fmt(alive / rows.length * 100, 'pct') : '—',
           sub: alive + ' 人幸存', tone: alive / Math.max(1, rows.length) < 0.5 ? 'warn' : 'ok' },
         { label: '女性生存率', value: female.length ? C.fmt(fAlive / female.length * 100, 'pct') : '—', sub: female.length + ' 位女性乘客' },
@@ -1571,7 +1630,7 @@
         });
       }
       return [
-        { label: '房源数', value: String(rows.length), sub: uniq(rows, '区位').length + ' 个区位' },
+        { label: '房源数', value: countStr(rows.length), sub: uniq(rows, '区位').length + ' 个区位' },
         { label: '平均总价', value: prices.length ? C.fmt(mean(prices), 'money') : '—', sub: '每套成交总价' },
         { label: '平均单价', value: units.length ? C.fmt(mean(units), 'sep') : '—', sub: '元 / ㎡' },
         { label: '平均面积', value: areas.length ? C.fmt(mean(areas)) : '—', sub: '建筑面积 ㎡' },
@@ -1584,9 +1643,9 @@
       var total = sum(amounts);
       var days = uniq(rows, '日期').length;
       var refund = rows.filter(function (r) { return r['是否退款'] === '是'; }).length;
-      var cats = order(entries(countBy(rows, '商品类别')), 'desc');
+      var cats = order(catEntries(rows, '商品类别'), 'desc');
       return [
-        { label: '订单数', value: String(rows.length), sub: days ? days + ' 天' : '单日' },
+        { label: '订单数', value: countStr(rows.length), sub: days ? days + ' 天' : '单日' },
         { label: '总销售额', value: C.fmt(total, 'money'), sub: '含退款订单' },
         { label: '客单价', value: amounts.length ? C.fmt(total / amounts.length, 'money') : '—', sub: '平均每单' },
         { label: '退款率', value: rows.length ? C.fmt(refund / rows.length * 100, 'pct') : '—',
@@ -1602,12 +1661,12 @@
         if (typeof r['最高温'] === 'number' && (!hi || r['最高温'] > hi.v)) hi = { v: r['最高温'], city: r['城市'], date: r['日期'] };
       });
       return [
-        { label: '观测记录', value: String(rows.length),
+        { label: '观测记录', value: countStr(rows.length),
           sub: uniq(rows, '城市').length + ' 个城市 · ' + uniq(rows, '日期').length + ' 天' },
         { label: '平均气温', value: temps.length ? mean(temps).toFixed(1) + '℃' : '—', sub: '日均气温的均值' },
         { label: '累计降水', value: rain.length ? C.fmt(sum(rain), 'sep') : '—', sub: '毫米（mm）' },
-        { label: '降雨记录占比', value: rows.length ? C.fmt(rainy / rows.length * 100, 'pct') : '—',
-          sub: rainy + ' 条有降水', tone: rainy ? 'ok' : 'warn' },
+        { label: '降雨记录占比', value: rain.length ? C.fmt(rainy / rain.length * 100, 'pct') : '—',
+          sub: rain.length ? rainy + ' / ' + rain.length + ' 条有效降水记录' : '需要降雨量字段', tone: rainy ? 'ok' : 'warn' },
         { label: '最高气温', value: hi ? hi.v.toFixed(1) + '℃' : '—',
           sub: hi ? (hi.city ? hi.city + ' · ' : '') + (hi.date || '') : '需要最高温字段' }
       ];
@@ -1636,9 +1695,9 @@
       var sold = sum(nums(rows, '数量'));
       var days = uniq(rows, '日期').length;
       var top = order(entries(sumBy(rows, '品类', '数量')), 'desc')[0];
-      var peak = order(entries(countBy(rows, '时段')), 'desc')[0];
+      var peak = order(catEntries(rows, '时段'), 'desc')[0];
       return [
-        { label: '订单数', value: String(rows.length), sub: days ? days + ' 天' : '单日' },
+        { label: '订单数', value: countStr(rows.length), sub: days ? days + ' 天' : '单日' },
         { label: '营业额', value: C.fmt(total, 'money'), sub: days ? '日均 ' + C.fmt(total / days, 'money') : '' },
         { label: '客单价', value: amounts.length ? C.fmt(total / amounts.length, 'money') : '—', sub: '平均每单' },
         { label: '总销量', value: sold ? C.fmt(sold, 'sep') : '—',
@@ -1656,13 +1715,13 @@
       var topP = scorers[0], topA = passers[0];
       var dd = rows.filter(function (r) { return r['两双']; }).length;
       return [
-        { label: '球员数', value: String(rows.length), sub: uniq(rows, '球队').length + ' 支球队' },
+        { label: '球员数', value: countStr(rows.length), sub: uniq(rows, '球队').length + ' 支球队' },
         { label: '场均得分', value: pts.length ? mean(pts).toFixed(1) : '—', sub: '全部球员的平均' },
         { label: '得分王', value: topP && topP['球员'] ? topP['球员'] : '—',
           sub: topP ? topP['得分'] + ' 分' + (topP['球队'] ? ' · ' + topP['球队'] : '') : '' },
         { label: '助攻王', value: topA && topA['球员'] ? topA['球员'] : '—',
           sub: topA ? topA['助攻'] + ' 次' + (topA['球队'] ? ' · ' + topA['球队'] : '') : '' },
-        { label: '两双人数', value: String(dd),
+        { label: '两双人数', value: countStr(dd),
           sub: rows.length ? C.fmt(dd / rows.length * 100, 'pct') + ' 的球员' : '', tone: dd ? 'ok' : 'warn' }
       ];
     },
@@ -1673,11 +1732,11 @@
         .sort(function (a, b) { return b['评分'] - a['评分']; })[0];
       var great = rows.filter(function (r) { return typeof r['评分'] === 'number' && r['评分'] >= 8.5; }).length;
       return [
-        { label: '影片数', value: String(rows.length), sub: uniq(rows, '类型').length + ' 种类型' },
+        { label: '影片数', value: countStr(rows.length), sub: uniq(rows, '类型').length + ' 种类型' },
         { label: '平均评分', value: scores.length ? mean(scores).toFixed(2) : '—', sub: '满分 10 分' },
         { label: '最高评分', value: best ? best['评分'].toFixed(1) : '—', sub: best ? best['片名'] || '' : '' },
-        { label: '神作占比', value: rows.length ? C.fmt(great / rows.length * 100, 'pct') : '—',
-          sub: great + ' 部 ≥ 8.5 分', tone: great ? 'ok' : 'warn' },
+        { label: '神作占比', value: scores.length ? C.fmt(great / scores.length * 100, 'pct') : '—',
+          sub: great + ' / ' + scores.length + ' 部有效评分 ≥ 8.5 分', tone: great ? 'ok' : 'warn' },
         { label: '平均票房', value: box.length ? C.fmt(mean(box), 'sep') : '—', sub: '万元 / 部' }
       ];
     }
@@ -1775,6 +1834,7 @@
   var state = {
     dsId: null,
     source: 'builtin',
+    rowsRaw: [],
     rowsAll: [],
     present: [],
     filters: {},
@@ -1782,7 +1842,13 @@
     bins: 12,
     labels: false,
     charts: null,
-    cards: {}
+    cards: {},
+    clean: null,
+    cleanReport: null,
+    calc: [],
+    custom: {},
+    title: '',
+    intro: ''
   };
 
   var uploads = [];
@@ -1790,16 +1856,85 @@
     var rawUp = localStorage.getItem('console.uploads');
     if (rawUp) uploads = JSON.parse(rawUp) || [];
   } catch (e) { uploads = []; }
+  uploads.forEach(function (u) { if (!Array.isArray(u.rows)) u.rows = []; });
+
+  /* 上传的数据行放 IndexedDB，localStorage 只保留元信息，避免大数据集超出配额 */
+  var idb = null;
+  var idbReady = new Promise(function (resolve) {
+    if (!window.indexedDB) { resolve(false); return; }
+    var req;
+    try { req = window.indexedDB.open('analytics-console', 1); } catch (e) { resolve(false); return; }
+    req.onupgradeneeded = function () {
+      var db = req.result;
+      if (!db.objectStoreNames.contains('uploads')) db.createObjectStore('uploads');
+    };
+    req.onsuccess = function () { idb = req.result; resolve(true); };
+    req.onerror = function () { resolve(false); };
+    req.onblocked = function () { resolve(false); };
+  });
+
+  function idbRun(mode, action) {
+    return idbReady.then(function (ok) {
+      if (!ok) return null;
+      return new Promise(function (resolve) {
+        var tx;
+        try { tx = idb.transaction('uploads', mode); } catch (e) { resolve(null); return; }
+        var req = action(tx.objectStore('uploads'));
+        tx.oncomplete = function () { resolve(req && req.result !== undefined ? req.result : true); };
+        tx.onerror = function () { resolve(null); };
+        tx.onabort = function () { resolve(null); };
+      });
+    });
+  }
+
+  function idbAllRows() {
+    return idbReady.then(function (ok) {
+      if (!ok) return {};
+      return new Promise(function (resolve) {
+        var tx = idb.transaction('uploads', 'readonly');
+        var store = tx.objectStore('uploads');
+        var keys = store.getAllKeys(), vals = store.getAll();
+        tx.oncomplete = function () {
+          var map = {};
+          (keys.result || []).forEach(function (k, i) { map[k] = vals.result[i]; });
+          resolve(map);
+        };
+        tx.onerror = function () { resolve({}); };
+      });
+    });
+  }
 
   function saveUploads() {
     try {
-      localStorage.setItem('console.uploads', JSON.stringify(uploads));
+      localStorage.setItem('console.uploads', JSON.stringify(uploads.map(function (u) {
+        return { id: u.id, name: u.name, dsId: u.dsId, count: u.rows.length, present: u.present, createdAt: u.createdAt, size: u.size };
+      })));
       return true;
     } catch (e) {
-      toast('数据已载入，但超出浏览器存储上限，刷新后需重新上传', 'warn');
+      toast('数据源列表超出浏览器存储上限，刷新后需重新上传', 'warn');
       return false;
     }
   }
+
+  function persistRows(u) {
+    return idbRun('readwrite', function (store) { return store.put(u.rows, u.id); }).then(function (ok) {
+      if (!ok) toast('数据已载入，但本浏览器无法持久保存大文件，刷新后需重新上传', 'warn');
+      return ok;
+    });
+  }
+
+  idbAllRows().then(function (map) {
+    var touched = false;
+    uploads.forEach(function (u) {
+      if (Array.isArray(map[u.id]) && map[u.id].length) { u.rows = map[u.id]; touched = true; }
+    });
+    if (!touched || !state.dsId || state.source === 'builtin') return;
+    state.rowsRaw = sourceRows(state.dsId, state.source);
+    rebuildRows();
+    buildSourceSelect();
+    buildFilters();
+    render(false);
+  });
 
   function stateKey() { return 'console.dash.' + state.dsId; }
 
@@ -1808,7 +1943,9 @@
     try {
       localStorage.setItem(stateKey(), JSON.stringify({
         source: state.source, charts: state.charts, filters: state.filters,
-        sort: state.sort, bins: state.bins, labels: state.labels
+        sort: state.sort, bins: state.bins, labels: state.labels,
+        clean: state.clean, calc: state.calc, custom: state.custom,
+        title: state.title, intro: state.intro
       }));
     } catch (e) {}
   }
@@ -1944,7 +2081,7 @@
   /* ---------- 图表选择器 ---------- */
 
   function suitableCharts() {
-    var defs = CHARTS[state.dsId] || [];
+    var defs = (CHARTS[state.dsId] || []).concat(calcChartDefs());
     return defs.filter(function (def) { return def.when(state.present); });
   }
 
@@ -2023,6 +2160,7 @@
 
   function openUpload() {
     pendingUpload = null;
+    hideProgress();
     document.getElementById('upload-choose').hidden = false;
     document.getElementById('upload-preview').hidden = true;
     document.getElementById('upload-error').hidden = true;
@@ -2046,30 +2184,47 @@
     return null;
   }
 
+  function setProgress(done, total, label) {
+    document.getElementById('upload-progress').hidden = false;
+    document.getElementById('upload-progress-fill').style.width = (total ? Math.round(done / total * 100) : 8) + '%';
+    document.getElementById('upload-progress-text').textContent = label || ('解析中 · ' + done.toLocaleString('en-US') + ' / ' + total.toLocaleString('en-US') + ' 行');
+  }
+
+  function hideProgress() { document.getElementById('upload-progress').hidden = true; }
+
   function handleFile(file) {
     if (!file) return;
-    if (file.size > 8 * 1048576) {
-      uploadError('文件超过 8 MB 上限，请拆分后再上传');
+    if (file.size > D.MAX_FILE_BYTES) {
+      uploadError('文件超过 64 MB 上限，请拆分后再上传');
       return;
     }
+    document.getElementById('upload-error').hidden = true;
+    setProgress(0, 0, '读取文件…');
     var reader = new FileReader();
     reader.onload = function () {
       var decoded = decodeText(reader.result);
       if (!decoded) {
+        hideProgress();
         uploadError('无法识别文件编码（支持 UTF-8 / GBK / UTF-16），请另存为 UTF-8 后重试');
         return;
       }
-      var parsed = D.parse(decoded.text, file.name);
-      if (parsed.error) { uploadError(parsed.error); return; }
-      var norm = D.normalize(state.dsId, parsed);
-      if (norm.error) {
-        uploadError(norm.error + '（已识别表头：' + (norm.headers || parsed.headers).join('、') + '）');
-        return;
-      }
-      pendingUpload = { file: file, norm: norm, format: parsed.format, encoding: decoded.encoding };
-      renderUploadPreview();
+      setProgress(0, 0, '解析数据…');
+      D.parseChunked(decoded.text, file.name, function (done, total) { setProgress(done, total); }).then(function (parsed) {
+        if (parsed.error) { hideProgress(); uploadError(parsed.error); return; }
+        setProgress(0, 0, '匹配字段并归一化…');
+        D.yieldTask(function () {
+          var norm = D.normalize(state.dsId, parsed);
+          hideProgress();
+          if (norm.error) {
+            uploadError(norm.error + '（已识别表头：' + (norm.headers || parsed.headers).join('、') + '）');
+            return;
+          }
+          pendingUpload = { file: file, norm: norm, format: parsed.format, encoding: decoded.encoding };
+          renderUploadPreview();
+        });
+      });
     };
-    reader.onerror = function () { uploadError('文件读取失败，请重试'); };
+    reader.onerror = function () { hideProgress(); uploadError('文件读取失败，请重试'); };
     reader.readAsArrayBuffer(file);
   }
 
@@ -2089,8 +2244,9 @@
     document.getElementById('upload-file-meta').textContent =
       up.file.name + ' · ' + humanSize(up.file.size) + ' · ' + up.format +
       (up.encoding && up.encoding !== 'UTF-8' ? ' · ' + up.encoding + ' 编码' : '') +
-      ' · ' + up.norm.rows.length + ' 行有效数据' +
-      (up.norm.dropped ? ' · 忽略 ' + up.norm.dropped + ' 行' : '');
+      ' · ' + up.norm.rows.length.toLocaleString('en-US') + ' 行有效数据' +
+      (up.norm.dropped ? ' · 忽略 ' + up.norm.dropped + ' 行空记录' : '') +
+      (up.norm.truncated ? ' · 超出 30 万行上限，已截取前 30 万行' : '');
     var mapEl = document.getElementById('upload-map');
     var HOW = { fuzzy: '模糊匹配', content: '按内容识别', datepart: '取日期部分', timepart: '取时间部分', split: '共用该列' };
     var how = up.norm.matchHow || {};
@@ -2130,10 +2286,10 @@
 
   function applySource(id, autoPicker) {
     state.source = id;
-    state.rowsAll = sourceRows(state.dsId, id);
-    state.present = D.presentKeys(state.dsId, state.rowsAll);
+    state.rowsRaw = sourceRows(state.dsId, id);
     state.filters = {};
     state.charts = null;
+    rebuildRows();
     saveState();
     buildSourceSelect();
     buildFilters();
@@ -2154,15 +2310,18 @@
     };
     uploads.push(record);
     saveUploads();
+    persistRows(record);
     hideModal('upload');
     applySource(id, true);
     toast('已载入「' + name + '」' + record.rows.length + ' 行数据', 'ok');
   }
 
+  function uploadCount(u) { return u.rows.length || u.count || 0; }
+
   function buildSourceSelect() {
     var opts = ['<option value="builtin">内置示例数据</option>'];
     uploads.filter(function (u) { return u.dsId === state.dsId; }).forEach(function (u) {
-      opts.push('<option value="' + esc(u.id) + '">' + esc(u.name) + '（' + u.rows.length + ' 行）</option>');
+      opts.push('<option value="' + esc(u.id) + '">' + esc(u.name) + '（' + uploadCount(u) + ' 行）</option>');
     });
     srcSelect.innerHTML = opts.join('');
     srcSelect.value = state.source;
@@ -2185,7 +2344,7 @@
     mine.forEach(function (u) {
       html += '<div class="source-row" data-id="' + esc(u.id) + '">' +
         '<div class="source-row__body"><strong>' + esc(u.name) + '</strong>' +
-        '<span>' + u.rows.length + ' 行 · ' + humanSize(u.size || 0) + ' · ' + String(u.createdAt || '').slice(0, 10) + '</span></div>' +
+        '<span>' + uploadCount(u) + ' 行 · ' + humanSize(u.size || 0) + ' · ' + String(u.createdAt || '').slice(0, 10) + '</span></div>' +
         '<button class="ghost-btn" type="button" data-use="' + esc(u.id) + '">使用</button>' +
         '<button class="ghost-btn ghost-btn--danger" type="button" data-del="' + esc(u.id) + '">删除</button></div>';
     });
@@ -2208,6 +2367,7 @@
       if (idx === -1) return;
       var removed = uploads.splice(idx, 1)[0];
       saveUploads();
+      idbRun('readwrite', function (store) { return store.delete(id); });
       if (state.source === id) {
         applySource('builtin', false);
       }
@@ -2217,6 +2377,7 @@
         fn: function () {
           uploads.splice(Math.min(idx, uploads.length), 0, removed);
           saveUploads();
+          persistRows(removed);
           buildSourceSelect();
           openSources();
           toast('已恢复「' + removed.name + '」', 'ok');
@@ -2228,7 +2389,7 @@
   /* ---------- 筛选控件 ---------- */
 
   function buildFilters() {
-    var defs = FILTERS[state.dsId] || [];
+    var defs = allFilterDefs();
     filtersBox.innerHTML = '';
     defs.forEach(function (def) {
       if (def.type === 'select' && state.present.indexOf(def.field) === -1) return;
@@ -2267,7 +2428,7 @@
       } else if (def.type === 'number') {
         var num = document.createElement('input');
         num.type = 'number';
-        num.min = '0';
+        num.min = def.min != null ? def.min : '0';
         num.step = def.step || '1';
         num.placeholder = '0';
         num.className = 'ctl__input ctl__input--num';
@@ -2298,7 +2459,7 @@
   }
 
   function filteredRows() {
-    var defs = FILTERS[state.dsId] || [];
+    var defs = allFilterDefs();
     return state.rowsAll.filter(function (r) {
       return defs.every(function (def) {
         var v = state.filters[def.key];
@@ -2308,6 +2469,109 @@
         return def.test(r, v);
       });
     });
+  }
+
+  /* ---------- 清洗 / 计算字段 / 图表自定义 ---------- */
+
+  function schemaCols() {
+    var schema = D.SCHEMAS[state.dsId];
+    if (!schema) return [];
+    var rawPresent = D.presentKeys(state.dsId, state.rowsRaw);
+    return schema.columns.filter(function (c) { return rawPresent.indexOf(c.key) !== -1; });
+  }
+
+  function calcNames() { return state.calc.map(function (f) { return f.name; }); }
+
+  function rebuildRows() {
+    var rows = state.rowsRaw;
+    state.cleanReport = null;
+    if (state.clean && !window.Clean.isDefault(state.clean)) {
+      var res = window.Clean.apply(rows, schemaCols(), state.clean);
+      rows = res.rows;
+      state.cleanReport = res.report;
+    }
+    if (state.calc.length) {
+      rows = window.Calc.evaluate(rows, state.calc, D.presentKeys(state.dsId, rows)).rows;
+    }
+    state.rowsAll = rows;
+    var present = D.presentKeys(state.dsId, rows);
+    calcNames().forEach(function (n) { if (present.indexOf(n) === -1) present.push(n); });
+    state.present = present;
+  }
+
+  function calcFilterDefs() {
+    return state.calc.map(function (f, i) {
+      return {
+        key: 'calc' + i, label: f.name + ' ≥', type: 'number', field: f.name, step: 'any', min: '',
+        test: function (r, v) { return typeof r[f.name] === 'number' && r[f.name] >= v; }
+      };
+    });
+  }
+
+  function allFilterDefs() { return (FILTERS[state.dsId] || []).concat(calcFilterDefs()); }
+
+  function preferredGroup() {
+    var cols = schemaCols();
+    for (var i = 0; i < cols.length; i++) {
+      if (cols[i].type !== 'cat' && cols[i].type !== 'bool') continue;
+      var u = uniq(state.rowsAll, cols[i].key);
+      if (u.length > 1 && u.length <= 24) return cols[i].key;
+    }
+    return null;
+  }
+
+  function calcChartDefs() {
+    var out = [], groupKey = preferredGroup();
+    state.calc.forEach(function (f, i) {
+      out.push({
+        id: 'calc-hist-' + i, name: f.name + ' 分布', desc: '计算字段「' + f.name + '」的区间分布', kind: 'hist', span: 6,
+        when: function (p) { return p.indexOf(f.name) !== -1; },
+        build: function (rows, ctx) {
+          var vals = nums(rows, f.name);
+          if (!vals.length) return null;
+          var h = hist(vals, ctx.bins);
+          return { kind: 'hist', x: h.x, series: [{ name: '记录数', values: h.counts }], yLabel: '记录数', xLabel: f.name, aria: f.name + ' 分布直方图' };
+        }
+      });
+      if (!groupKey) return;
+      out.push({
+        id: 'calc-group-' + i, name: f.name + ' 分组均值', desc: '按' + groupKey + '对比「' + f.name + '」的平均值', kind: 'bar', span: 6,
+        when: function (p) { return p.indexOf(f.name) !== -1 && p.indexOf(groupKey) !== -1; },
+        build: function (rows, ctx) {
+          var gs = uniq(rows, groupKey);
+          if (!gs.length) return null;
+          var list = order(gs.map(function (g) {
+            return { label: g, value: mean(nums(rows.filter(function (r) { return r[groupKey] === g; }), f.name)) };
+          }), ctx.sort);
+          return {
+            kind: 'bar', x: list.map(function (e) { return e.label; }), yLabel: f.name + ' 均值',
+            series: [{ name: f.name + ' 均值', values: list.map(function (e) { return round2(e.value); }) }]
+          };
+        }
+      });
+    });
+    return out;
+  }
+
+  function customOf(id) { return state.custom[id] || {}; }
+
+  function chartOpts(id, animate) {
+    var cu = customOf(id);
+    return {
+      labels: cu.labels != null ? cu.labels : state.labels,
+      grid: cu.grid !== false,
+      colors: cu.scheme && cu.scheme !== 'theme' ? C.schemeColors(cu.scheme, cu.color) : null,
+      animate: !!animate
+    };
+  }
+
+  function drawCard(rec, animate) {
+    if (rec.tableView) return;
+    var out = C.render(rec.host, rec.spec, chartOpts(rec.def.id, animate));
+    rec.legendEl.innerHTML = out.legend.map(function (l) {
+      return '<span class="legend-item"><i style="background:' + l.color + '"></i>' + esc(l.name) + '</span>';
+    }).join('');
+    rec.legendEl.hidden = out.legend.length === 0 || customOf(rec.def.id).legend === false;
   }
 
   /* ---------- 渲染 ---------- */
@@ -2365,7 +2629,7 @@
       if (!rec || rec.tableView || !rec.spec) return;
       clearTimeout(host._rt);
       host._rt = setTimeout(function () {
-        if (host.clientWidth > 0 && host.clientHeight > 0) C.render(host, rec.spec, { labels: state.labels, animate: false });
+        if (host.clientWidth > 0 && host.clientHeight > 0) drawCard(rec, false);
       }, 120);
     });
   }) : null;
@@ -2380,12 +2644,19 @@
   function render(animate) {
     if (!state.dsId) return;
     var rows = filteredRows();
+    colBegin(rows);
     var defs = suitableCharts();
     var chosen = state.charts ? defs.filter(function (d) { return state.charts.indexOf(d.id) !== -1; }) : defs;
 
     var catName = (window.Catalog && window.Catalog.categoryOf(state.dsId)) || '数据集';
+    document.getElementById('dash-eyebrow').textContent = catName + ' · 看板';
+    var cr = state.cleanReport;
+    var cleanNote = cr && (cr.removed || cr.filled || cr.clipped || cr.deduped || cr.trimmed)
+      ? ' · 已清洗（移除 ' + cr.removed + ' 行 / 填充 ' + cr.filled + ' 处）' : '';
     headMeta.textContent = catName + ' · ' + sourceName(state.dsId, state.source) + ' · ' +
-      rows.length + ' / ' + state.rowsAll.length + ' 行 · ' + state.present.length + ' 个字段' +
+      rows.length.toLocaleString('en-US') + ' / ' + state.rowsAll.length.toLocaleString('en-US') + ' 行 · ' + state.present.length + ' 个字段' +
+      cleanNote +
+      (state.calc.length ? ' · ' + state.calc.length + ' 个计算字段' : '') +
       (state.source === 'builtin' ? ' · 演示数据由本地生成' : '');
 
     var kpiList = KPIS[state.dsId](rows, { present: state.present });
@@ -2410,7 +2681,7 @@
     var built = [];
     chosen.forEach(function (def) {
       var spec = def.build(rows, { present: state.present, bins: state.bins, sort: state.sort, labels: state.labels });
-      if (spec) built.push({ def: def, spec: spec, span: Math.min(12, def.span) });
+      if (spec) built.push({ def: def, spec: spec, span: Math.min(12, customOf(def.id).span || def.span) });
     });
 
     var used = 0;
@@ -2440,7 +2711,10 @@
 
     built.forEach(function (b, idx) {
       var def = b.def, spec = b.spec;
-      spec.title = def.name;
+      var cu = customOf(def.id);
+      var cardName = cu.title || def.name;
+      var cardDesc = cu.desc != null && cu.desc !== '' ? cu.desc : def.desc;
+      spec.title = cardName;
       var article = document.createElement('article');
       article.className = 'card';
       article.dataset.chart = def.id;
@@ -2449,9 +2723,10 @@
       article.style.animationDelay = Math.min(idx * 45, 400) + 'ms';
       article.innerHTML =
         '<header class="card__head">' +
-          '<div class="card__titles"><h3>' + esc(def.name) + '</h3><p>' + esc(def.desc) + '</p></div>' +
+          '<div class="card__titles"><h3>' + esc(cardName) + '</h3><p>' + esc(cardDesc) + '</p></div>' +
           '<span class="card__kind">' + KIND_LABEL[def.kind] + '</span>' +
           '<div class="card__tools">' +
+            '<button type="button" data-act="custom" aria-label="自定义这张图表" title="自定义标题 / 配色 / 样式"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2.2"/><circle cx="9" cy="17" r="2.2"/></svg></button>' +
             '<button type="button" data-act="table" aria-pressed="false" aria-label="切换数据表格" title="数据表格"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M3.5 9.5h17M9.5 9.5v10M15 9.5v10"/></svg></button>' +
             '<button type="button" data-act="svg" aria-label="导出 SVG" title="导出 SVG"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v10M8 10.5l4 4 4-4"/><path d="M5 19h14"/></svg></button>' +
             '<button type="button" data-act="png" aria-label="导出 PNG" title="导出 PNG"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="14" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M4.5 17l4.5-4 3.5 3 3-2.5 4 3.5"/></svg></button>' +
@@ -2463,13 +2738,10 @@
       var host = article.querySelector('.chart-host');
       var legendEl = article.querySelector('.card__legend');
       var tableEl = article.querySelector('.card__table');
-      var out = C.render(host, spec, { labels: state.labels, animate: animate });
-      legendEl.innerHTML = out.legend.map(function (l) {
-        return '<span class="legend-item"><i style="background:' + l.color + '"></i>' + esc(l.name) + '</span>';
-      }).join('');
-      legendEl.hidden = out.legend.length === 0;
       var table = tableFor(spec);
-      state.cards[def.id] = { spec: spec, host: host, legendEl: legendEl, tableEl: tableEl, article: article, table: table, tableView: false, def: def };
+      var rec = { spec: spec, host: host, legendEl: legendEl, tableEl: tableEl, article: article, table: table, tableView: false, def: def };
+      state.cards[def.id] = rec;
+      drawCard(rec, animate);
       if (resizeObserver) resizeObserver.observe(host);
     });
 
@@ -2489,7 +2761,9 @@
       rec.host.hidden = rec.tableView;
       rec.tableEl.hidden = !rec.tableView;
       if (rec.tableView) renderTable(rec.tableEl, rec.table);
-      else C.render(rec.host, rec.spec, { labels: state.labels, animate: false });
+      else drawCard(rec, false);
+    } else if (act === 'custom') {
+      openChartCustom(card.dataset.chart);
     } else if (act === 'svg') {
       var svg = rec.host.querySelector('svg');
       if (!svg) { toast('表格视图下请先切回图表再导出', 'warn'); return; }
@@ -2579,7 +2853,8 @@
     var rows = filteredRows();
     if (!rows.length) { toast('当前筛选下没有可导出的数据', 'warn'); return; }
     var schema = D.SCHEMAS[state.dsId];
-    var cols = schema.columns.map(function (c) { return c.key; }).filter(function (k) { return state.present.indexOf(k) !== -1; });
+    var cols = schema.columns.map(function (c) { return c.key; }).filter(function (k) { return state.present.indexOf(k) !== -1; })
+      .concat(calcNames());
     var lines = [cols.join(',')];
     rows.forEach(function (r) {
       lines.push(cols.map(function (c) {
@@ -2625,6 +2900,527 @@
     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); }
   });
 
+  /* ---------- 页面文案 / 关于 ---------- */
+
+  var ABOUT_DEFAULT = '数据分析看板是一个纯前端的分析工作台：13 个数据集分为校园学生、公共通用经典、生活社会与体育娱乐四类，每个数据集都自带一份本地生成的演示数据，也可以上传自己的 CSV / TSV / JSON。\n\n' +
+    '上传的文件会自动识别 UTF-8 / GBK / UTF-16 编码，并对表头做模糊匹配——「日期」「时间」「统计日期」这类写法都能对上字段。缺失值、重复行与异常值可以在「数据清洗」里按规则处理，也可以用「计算字段」写表达式生成新的指标。\n\n' +
+    '所有数据只保存在你自己的浏览器里（上传记录存于 IndexedDB），不会发送到任何服务器。图表由手写 SVG 引擎绘制，可单独导出 SVG / PNG，也可以一键下载包含全部图表的 HTML 报告。';
+
+  var PAGE_DEFAULT = { site: '数据分析看板', sub: 'ANALYTICS CONSOLE', aboutTitle: '关于本工具', about: ABOUT_DEFAULT };
+
+  var page = {};
+  try { page = JSON.parse(localStorage.getItem('console.page') || '{}') || {}; } catch (e) { page = {}; }
+
+  function pageVal(k) { return page[k] != null && page[k] !== '' ? page[k] : PAGE_DEFAULT[k]; }
+
+  function savePage() {
+    try { localStorage.setItem('console.page', JSON.stringify(page)); } catch (e) {}
+  }
+
+  function applySiteText() {
+    var name = pageVal('site'), sub = pageVal('sub');
+    document.querySelector('.mark__name').textContent = name;
+    document.querySelector('.mark__sub').textContent = sub;
+    document.querySelector('.mark').setAttribute('aria-label', name + ' 首页');
+    document.title = state.dsId ? (state.title || state.dsName) + ' · ' + name : name;
+  }
+
+  function applyHeadText() {
+    headTitle.textContent = state.title || state.dsName || '';
+    var intro = document.getElementById('dash-intro');
+    intro.textContent = state.intro || '';
+    intro.hidden = !state.intro;
+    applySiteText();
+  }
+
+  function paragraphs(text) {
+    return String(text || '').split(/\n\s*\n/).map(function (s) { return s.trim(); }).filter(Boolean);
+  }
+
+  function aboutHtml() {
+    return paragraphs(pageVal('about')).map(function (p) {
+      return '<p>' + esc(p).replace(/\n/g, '<br>') + '</p>';
+    }).join('');
+  }
+
+  function renderAbout() {
+    var t = pageVal('aboutTitle');
+    document.getElementById('about-heading').textContent = t;
+    document.getElementById('about-modal-title').textContent = t;
+    var html = aboutHtml();
+    document.getElementById('about-body').innerHTML = html;
+    document.getElementById('about-modal-body').innerHTML = html;
+  }
+
+  function openPage() {
+    document.getElementById('pg-site').value = pageVal('site');
+    document.getElementById('pg-sub').value = pageVal('sub');
+    document.getElementById('pg-dash').value = state.title || '';
+    document.getElementById('pg-intro').value = state.intro || '';
+    document.getElementById('pg-about-title').value = pageVal('aboutTitle');
+    document.getElementById('pg-about').value = pageVal('about');
+    showModal('page');
+  }
+
+  document.getElementById('page-btn').addEventListener('click', openPage);
+  document.getElementById('about-btn').addEventListener('click', function () { renderAbout(); showModal('about'); });
+  document.getElementById('about-edit').addEventListener('click', openPage);
+  document.getElementById('about-modal-edit').addEventListener('click', function () { hideModal('about'); openPage(); });
+
+  document.getElementById('pg-apply').addEventListener('click', function () {
+    page.site = document.getElementById('pg-site').value.trim();
+    page.sub = document.getElementById('pg-sub').value.trim();
+    page.aboutTitle = document.getElementById('pg-about-title').value.trim();
+    page.about = document.getElementById('pg-about').value.trim();
+    savePage();
+    state.title = document.getElementById('pg-dash').value.trim();
+    state.intro = document.getElementById('pg-intro').value.trim();
+    saveState();
+    applyHeadText();
+    renderAbout();
+    hideModal('page');
+    toast('页面文案已更新', 'ok');
+  });
+
+  document.getElementById('pg-reset').addEventListener('click', function () {
+    page = {};
+    savePage();
+    state.title = '';
+    state.intro = '';
+    saveState();
+    applyHeadText();
+    renderAbout();
+    openPage();
+    toast('已恢复默认文案', 'ok');
+  });
+
+  /* ---------- 数据清洗 ---------- */
+
+  var cleanDraft = null;
+
+  function cleanCols() { return schemaCols(); }
+
+  function syncCleanControls() {
+    document.getElementById('clean-missing').value = cleanDraft.missing;
+    document.getElementById('clean-fill').value = cleanDraft.fill;
+    document.getElementById('clean-fill-wrap').hidden = cleanDraft.missing !== 'fill';
+    document.getElementById('clean-outliers').value = cleanDraft.outliers;
+    document.getElementById('clean-dedupe').setAttribute('aria-pressed', String(!!cleanDraft.dedupe));
+    document.getElementById('clean-trim').setAttribute('aria-pressed', String(!!cleanDraft.trim));
+  }
+
+  function updateCleanImpact() {
+    var res = window.Clean.apply(state.rowsRaw, cleanCols(), cleanDraft);
+    var r = res.report;
+    var bits = [];
+    if (r.removed) bits.push('移除 ' + r.removed + ' 行');
+    if (r.filled) bits.push('填充 ' + r.filled + ' 处');
+    if (r.clipped) bits.push('截断 ' + r.clipped + ' 处');
+    if (r.deduped) bits.push('去重 ' + r.deduped + ' 行');
+    if (r.trimmed) bits.push('规整 ' + r.trimmed + ' 处文本');
+    document.getElementById('clean-impact').textContent =
+      '应用后 ' + r.before.toLocaleString('en-US') + ' → ' + r.after.toLocaleString('en-US') + ' 行' +
+      (bits.length ? ' · ' + bits.join(' · ') : ' · 当前规则不改变数据');
+  }
+
+  function openClean() {
+    cleanDraft = window.Clean.normalizeCfg(state.clean);
+    var cols = cleanCols();
+    var prof = window.Clean.profile(state.rowsRaw, cols);
+    document.getElementById('clean-sub').textContent =
+      sourceName(state.dsId, state.source) + ' · 原始 ' + prof.rows.toLocaleString('en-US') + ' 行 · 清洗只影响本浏览器中的分析结果，不修改源文件';
+    document.getElementById('clean-stats').innerHTML = [
+      { label: '数据行', value: prof.rows.toLocaleString('en-US') },
+      { label: '缺失单元格', value: prof.missingCells.toLocaleString('en-US'), warn: prof.missingCells > 0 },
+      { label: '含缺失的行', value: prof.dirtyRows.toLocaleString('en-US'), warn: prof.dirtyRows > 0 },
+      { label: '完全重复行', value: prof.dup.toLocaleString('en-US'), warn: prof.dup > 0 }
+    ].map(function (s) {
+      return '<div class="qstat' + (s.warn ? ' qstat--warn' : '') + '"><span>' + esc(s.label) + '</span><strong>' + esc(s.value) + '</strong></div>';
+    }).join('');
+
+    var TYPE_LABEL = { num: '数值', cat: '类别', date: '日期', datetime: '日期时间', time: '时间', bool: '布尔' };
+    var html = '<table class="mini-table"><thead><tr><th>字段</th><th>类型</th><th>缺失</th><th>唯一值</th><th>异常值</th><th>范围</th></tr></thead><tbody>';
+    prof.columns.forEach(function (c) {
+      var range = c.stats ? C.fmt(c.stats.min, 'num') + ' ~ ' + C.fmt(c.stats.max, 'num') : '—';
+      html += '<tr><td>' + esc(c.key) + '</td><td>' + (TYPE_LABEL[c.type] || c.type) + '</td>' +
+        '<td' + (c.missing ? ' class="cell--warn"' : '') + '>' + c.missing + '（' + c.pct + '%）</td>' +
+        '<td>' + c.unique + '</td>' +
+        '<td' + (c.stats && c.stats.outliers ? ' class="cell--warn"' : '') + '>' + (c.stats ? c.stats.outliers : '—') + '</td>' +
+        '<td>' + esc(range) + '</td></tr>';
+    });
+    html += '</tbody></table>';
+    document.getElementById('clean-table').innerHTML = html;
+    syncCleanControls();
+    updateCleanImpact();
+    showModal('clean');
+  }
+
+  document.getElementById('clean-btn').addEventListener('click', openClean);
+  document.getElementById('clean-missing').addEventListener('change', function () {
+    cleanDraft.missing = this.value;
+    syncCleanControls();
+    updateCleanImpact();
+  });
+  document.getElementById('clean-fill').addEventListener('change', function () {
+    cleanDraft.fill = this.value;
+    updateCleanImpact();
+  });
+  document.getElementById('clean-outliers').addEventListener('change', function () {
+    cleanDraft.outliers = this.value;
+    updateCleanImpact();
+  });
+  document.getElementById('clean-dedupe').addEventListener('click', function () {
+    cleanDraft.dedupe = !cleanDraft.dedupe;
+    syncCleanControls();
+    updateCleanImpact();
+  });
+  document.getElementById('clean-trim').addEventListener('click', function () {
+    cleanDraft.trim = !cleanDraft.trim;
+    syncCleanControls();
+    updateCleanImpact();
+  });
+
+  function finishClean(msg) {
+    rebuildRows();
+    saveState();
+    buildFilters();
+    render(false);
+    hideModal('clean');
+    toast(msg, 'ok');
+  }
+
+  document.getElementById('clean-apply').addEventListener('click', function () {
+    state.clean = window.Clean.isDefault(cleanDraft) ? null : cleanDraft;
+    finishClean(state.clean ? '已应用清洗规则' : '清洗规则为默认，数据保持原样');
+  });
+  document.getElementById('clean-reset').addEventListener('click', function () {
+    state.clean = null;
+    cleanDraft = window.Clean.normalizeCfg(null);
+    finishClean('已恢复原始数据');
+  });
+
+  /* ---------- 计算字段 ---------- */
+
+  function calcFieldNames() { return D.presentKeys(state.dsId, state.rowsRaw); }
+
+  function renderCalcList() {
+    var box = document.getElementById('calc-list');
+    if (!state.calc.length) {
+      box.innerHTML = '<p class="calc__empty">还没有计算字段。示例：<code>[数学] * 0.4 + [语文] * 0.6</code></p>';
+      return;
+    }
+    box.innerHTML = state.calc.map(function (f, i) {
+      return '<div class="calc__item"><div><strong>' + esc(f.name) + '</strong><code>' + esc(f.expr) + '</code></div>' +
+        '<button class="ghost-btn ghost-btn--danger ghost-btn--sm" type="button" data-calc-del="' + i + '">删除</button></div>';
+    }).join('');
+  }
+
+  function calcPreview() {
+    var name = document.getElementById('calc-name').value.trim();
+    var expr = document.getElementById('calc-expr').value.trim();
+    var err = document.getElementById('calc-error');
+    var prev = document.getElementById('calc-preview');
+    err.hidden = true;
+    prev.textContent = '';
+    if (!expr) return null;
+    var c = window.Calc.compile(expr, calcFieldNames());
+    if (c.error) {
+      err.textContent = c.error;
+      err.hidden = false;
+      return null;
+    }
+    var sample = state.rowsRaw.slice(0, 4).map(function (r) {
+      var v = c.fn(r);
+      return v == null ? '—' : String(v);
+    });
+    prev.textContent = '引用字段：' + (c.refs.join('、') || '无') + ' · 前 4 行结果：' + sample.join(' / ');
+    return { name: name, expr: expr, refs: c.refs };
+  }
+
+  function openCalc() {
+    renderCalcList();
+    document.getElementById('calc-funcs').textContent = window.Calc.FUNCS.join(' ');
+    var names = calcFieldNames();
+    document.getElementById('calc-fields').innerHTML = names.map(function (n) {
+      return '<button class="chip chip--pick" type="button" data-field="' + esc(n) + '">' + esc(n) + '</button>';
+    }).join('');
+    calcPreview();
+    showModal('calc');
+  }
+
+  document.getElementById('calc-btn').addEventListener('click', openCalc);
+  document.getElementById('calc-expr').addEventListener('input', calcPreview);
+  document.getElementById('calc-name').addEventListener('input', calcPreview);
+  document.getElementById('calc-fields').addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-field]');
+    if (!btn) return;
+    var inp = document.getElementById('calc-expr');
+    var ref = '[' + btn.getAttribute('data-field') + ']';
+    var s = inp.selectionStart || inp.value.length;
+    inp.value = inp.value.slice(0, s) + ref + inp.value.slice(inp.selectionEnd || s);
+    inp.focus();
+    inp.selectionStart = inp.selectionEnd = s + ref.length;
+    calcPreview();
+  });
+  document.getElementById('calc-clear').addEventListener('click', function () {
+    document.getElementById('calc-name').value = '';
+    document.getElementById('calc-expr').value = '';
+    calcPreview();
+  });
+  document.getElementById('calc-list').addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-calc-del]');
+    if (!btn) return;
+    var i = Number(btn.getAttribute('data-calc-del'));
+    var removed = state.calc.splice(i, 1)[0];
+    delete state.filters['calc' + i];
+    rebuildRows();
+    saveState();
+    buildFilters();
+    render(false);
+    renderCalcList();
+    toast('已删除计算字段「' + removed.name + '」', 'ok');
+  });
+  document.getElementById('calc-add').addEventListener('click', function () {
+    var res = calcPreview();
+    var err = document.getElementById('calc-error');
+    if (!res || !res.name) {
+      err.textContent = res ? '请填写字段名称' : '请先填写有效的表达式';
+      err.hidden = false;
+      return;
+    }
+    if (calcFieldNames().indexOf(res.name) !== -1 || state.calc.some(function (f) { return f.name === res.name; })) {
+      err.textContent = '字段名「' + res.name + '」已存在，请换一个';
+      err.hidden = false;
+      return;
+    }
+    state.calc.push({ name: res.name, expr: res.expr });
+    rebuildRows();
+    saveState();
+    buildFilters();
+    render(false);
+    renderCalcList();
+    document.getElementById('calc-name').value = '';
+    document.getElementById('calc-expr').value = '';
+    calcPreview();
+    toast('已添加计算字段「' + res.name + '」，并生成对应图表', 'ok');
+  });
+
+  /* ---------- 图表自定义 ---------- */
+
+  var ccTarget = null;
+
+  function ccRead() {
+    return {
+      title: document.getElementById('cc-name').value.trim(),
+      desc: document.getElementById('cc-desc').value.trim(),
+      scheme: document.getElementById('cc-scheme').value,
+      color: document.getElementById('cc-color').value,
+      span: Number(document.getElementById('cc-span').value) || 0,
+      labels: document.getElementById('cc-labels').getAttribute('aria-pressed') === 'true',
+      grid: document.getElementById('cc-grid').getAttribute('aria-pressed') === 'true',
+      legend: document.getElementById('cc-legend').getAttribute('aria-pressed') === 'true'
+    };
+  }
+
+  function ccSwatches() {
+    var v = ccRead();
+    var colors = v.scheme === 'theme' ? C.palette().series : C.schemeColors(v.scheme, v.color);
+    document.getElementById('cc-swatches').innerHTML = (colors || []).map(function (c) {
+      return '<i style="background:' + c + '"></i>';
+    }).join('');
+    document.getElementById('cc-color-wrap').hidden = v.scheme !== 'custom';
+  }
+
+  function openChartCustom(id) {
+    var rec = state.cards[id];
+    if (!rec) return;
+    ccTarget = id;
+    var cu = customOf(id);
+    document.getElementById('cc-title').textContent = cu.title || rec.def.name;
+    document.getElementById('cc-name').value = cu.title || '';
+    document.getElementById('cc-name').placeholder = rec.def.name;
+    document.getElementById('cc-desc').value = cu.desc || '';
+    document.getElementById('cc-desc').placeholder = rec.def.desc;
+    document.getElementById('cc-scheme').innerHTML = C.SCHEMES.map(function (s) {
+      return '<option value="' + s.id + '">' + esc(s.name) + '</option>';
+    }).join('');
+    document.getElementById('cc-scheme').value = cu.scheme || 'theme';
+    document.getElementById('cc-color').value = cu.color || '#2fe0c6';
+    document.getElementById('cc-span').value = String(cu.span || 0);
+    document.getElementById('cc-labels').setAttribute('aria-pressed', String(cu.labels != null ? cu.labels : state.labels));
+    document.getElementById('cc-grid').setAttribute('aria-pressed', String(cu.grid !== false));
+    document.getElementById('cc-legend').setAttribute('aria-pressed', String(cu.legend !== false));
+    ccSwatches();
+    showModal('chart-custom');
+  }
+
+  ['cc-scheme', 'cc-color', 'cc-span'].forEach(function (id) {
+    document.getElementById(id).addEventListener('change', ccSwatches);
+  });
+  ['cc-labels', 'cc-grid', 'cc-legend'].forEach(function (id) {
+    var el = document.getElementById(id);
+    el.addEventListener('click', function () {
+      el.setAttribute('aria-pressed', String(el.getAttribute('aria-pressed') !== 'true'));
+    });
+  });
+
+  document.getElementById('cc-apply').addEventListener('click', function () {
+    if (!ccTarget) return;
+    var v = ccRead();
+    var isDefault = !v.title && !v.desc && v.scheme === 'theme' && !v.span &&
+      v.labels === state.labels && v.grid && v.legend;
+    if (isDefault) delete state.custom[ccTarget];
+    else state.custom[ccTarget] = v;
+    saveState();
+    hideModal('chart-custom');
+    render(false);
+    toast('图表设置已保存', 'ok');
+  });
+
+  document.getElementById('cc-reset').addEventListener('click', function () {
+    if (!ccTarget) return;
+    delete state.custom[ccTarget];
+    saveState();
+    hideModal('chart-custom');
+    render(false);
+    toast('已恢复该图表的默认样式', 'ok');
+  });
+
+  /* ---------- 重置 ---------- */
+
+  var RESET_ITEMS = [
+    { key: 'filters', label: '筛选与显示选项', desc: '筛选条件、排序、分箱、数值标签' },
+    { key: 'custom', label: '图表自定义', desc: '标题、配色、宽度与样式改写' },
+    { key: 'calc', label: '计算字段', desc: '删除全部自定义表达式字段' },
+    { key: 'clean', label: '清洗规则', desc: '恢复未清洗的原始数据' },
+    { key: 'text', label: '标题与项目介绍', desc: '恢复当前看板的默认标题与介绍' }
+  ];
+
+  document.getElementById('reset-btn').addEventListener('click', function () {
+    document.getElementById('reset-list').innerHTML = RESET_ITEMS.map(function (it, i) {
+      return '<label class="reset__item"><input type="checkbox" data-reset="' + it.key + '"' + (i === 0 ? ' checked' : '') + '>' +
+        '<span><strong>' + esc(it.label) + '</strong><em>' + esc(it.desc) + '</em></span></label>';
+    }).join('');
+    showModal('reset');
+  });
+
+  document.getElementById('reset-apply').addEventListener('click', function () {
+    var picked = {};
+    document.querySelectorAll('#reset-list [data-reset]').forEach(function (el) {
+      if (el.checked) picked[el.getAttribute('data-reset')] = true;
+    });
+    if (!Object.keys(picked).length) { toast('请至少选择一项', 'warn'); return; }
+    if (picked.filters) {
+      state.filters = {};
+      state.sort = 'default';
+      state.bins = 12;
+      state.labels = false;
+      state.charts = null;
+      sortSelect.value = 'default';
+      binValue.textContent = '12';
+      labelsToggle.setAttribute('aria-pressed', 'false');
+    }
+    if (picked.custom) state.custom = {};
+    if (picked.calc) state.calc = [];
+    if (picked.clean) state.clean = null;
+    if (picked.text) { state.title = ''; state.intro = ''; }
+    rebuildRows();
+    applyHeadText();
+    saveState();
+    buildFilters();
+    render(false);
+    hideModal('reset');
+    toast('已重置：' + RESET_ITEMS.filter(function (it) { return picked[it.key]; }).map(function (it) { return it.label; }).join('、'), 'ok');
+  });
+
+  /* ---------- 下载报告 ---------- */
+
+  function svgFor(rec) {
+    var svg = rec.host.querySelector('svg');
+    if (svg) return C.serialize(svg);
+    var tmp = document.createElement('div');
+    tmp.style.cssText = 'position:absolute;left:-9999px;top:0;width:720px;height:320px';
+    document.body.appendChild(tmp);
+    C.render(tmp, rec.spec, chartOpts(rec.def.id, false));
+    var node = tmp.querySelector('svg');
+    var out = node ? C.serialize(node) : '';
+    tmp.remove();
+    return out;
+  }
+
+  function buildReport() {
+    var p = C.palette();
+    var rows = filteredRows();
+    colBegin(rows);
+    var name = state.title || state.dsName;
+    var cols = schemaCols().map(function (c) { return c.key; }).concat(calcNames());
+    var kpiList = KPIS[state.dsId](rows, { present: state.present });
+    var css = 'body{margin:0;padding:32px;background:' + p.bg + ';color:' + p.fg +
+      ';font-family:"Segoe UI","PingFang SC","Microsoft YaHei UI",system-ui,sans-serif;line-height:1.6}' +
+      '.wrap{max-width:1080px;margin:0 auto}h1{font-size:26px;margin:0 0 6px}h2{font-size:17px;margin:0 0 4px}' +
+      '.meta{color:' + p.muted + ';font-size:13px;margin:0 0 20px}.intro{margin:0 0 20px;max-width:70ch}' +
+      '.kpis{display:flex;flex-wrap:wrap;gap:12px;margin:0 0 24px}' +
+      '.kpi{flex:1 1 160px;border:1px solid ' + p.border + ';border-radius:12px;padding:12px 14px;background:' + p.surface + '}' +
+      '.kpi span{display:block;font-size:12px;color:' + p.muted + '}.kpi strong{font-size:22px}' +
+      '.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:16px}' +
+      '.card{border:1px solid ' + p.border + ';border-radius:14px;padding:14px;background:' + p.surface + ';break-inside:avoid}' +
+      '.card p{margin:0 0 8px;font-size:12px;color:' + p.muted + '}.card svg{width:100%;height:auto}' +
+      'table{border-collapse:collapse;width:100%;font-size:12px;margin-top:8px}' +
+      'th,td{border:1px solid ' + p.border + ';padding:5px 8px;text-align:left}' +
+      'th{color:' + p.muted + ';font-weight:600}section{margin-top:28px}' +
+      '@media print{body{background:#fff;color:#111}.card,.kpi{background:#fff;border-color:#ddd}}';
+
+    var html = '<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8">' +
+      '<title>' + esc(name) + ' · 分析报告</title><style>' + css + '</style></head><body><div class="wrap">' +
+      '<h1>' + esc(name) + '</h1>' +
+      '<p class="meta">' + esc(pageVal('site')) + ' · ' + esc(sourceName(state.dsId, state.source)) + ' · ' +
+      rows.length.toLocaleString('en-US') + ' / ' + state.rowsAll.length.toLocaleString('en-US') + ' 行 · 生成于 ' +
+      new Date().toLocaleString('zh-CN') + '</p>' +
+      (state.intro ? '<p class="intro">' + esc(state.intro) + '</p>' : '') +
+      '<div class="kpis">' + kpiList.map(function (k) {
+        return '<div class="kpi"><span>' + esc(k.label) + '</span><strong>' + esc(k.value) + '</strong><span>' + esc(k.sub || '') + '</span></div>';
+      }).join('') + '</div><div class="grid">';
+
+    Object.keys(state.cards).forEach(function (id) {
+      var rec = state.cards[id];
+      var cu = customOf(id);
+      html += '<div class="card"><h2>' + esc(cu.title || rec.def.name) + '</h2><p>' +
+        esc(cu.desc || rec.def.desc) + '</p>' + svgFor(rec) + '</div>';
+    });
+    html += '</div>';
+
+    if (state.calc.length) {
+      html += '<section><h2>计算字段</h2><table><thead><tr><th>字段</th><th>表达式</th></tr></thead><tbody>' +
+        state.calc.map(function (f) { return '<tr><td>' + esc(f.name) + '</td><td>' + esc(f.expr) + '</td></tr>'; }).join('') +
+        '</tbody></table></section>';
+    }
+    if (state.cleanReport) {
+      var r = state.cleanReport;
+      html += '<section><h2>清洗记录</h2><p class="meta">原始 ' + r.before + ' 行 → ' + r.after + ' 行 · 移除 ' +
+        r.removed + ' · 填充 ' + r.filled + ' · 截断 ' + r.clipped + ' · 去重 ' + r.deduped + '</p></section>';
+    }
+
+    var preview = rows.slice(0, 200);
+    html += '<section><h2>数据明细（前 ' + preview.length + ' 行）</h2><table><thead><tr>' +
+      cols.map(function (c) { return '<th>' + esc(c) + '</th>'; }).join('') + '</tr></thead><tbody>' +
+      preview.map(function (r) {
+        return '<tr>' + cols.map(function (c) { return '<td>' + esc(r[c] == null ? '' : r[c]) + '</td>'; }).join('') + '</tr>';
+      }).join('') + '</tbody></table></section>';
+
+    html += '<section><h2>' + esc(pageVal('aboutTitle')) + '</h2>' + aboutHtml() + '</section>';
+    html += '</div></body></html>';
+    return html;
+  }
+
+  document.getElementById('report-btn').addEventListener('click', function () {
+    if (!state.dsId) return;
+    if (!Object.keys(state.cards).length) { toast('当前没有可导出的图表', 'warn'); return; }
+    var html = buildReport();
+    download(new Blob([html], { type: 'text/html;charset=utf-8' }),
+      (state.dsId || 'dashboard') + '-report.html');
+    toast('已下载 HTML 报告，可直接打开或打印为 PDF', 'ok');
+  });
+
   /* ---------- 生命周期 ---------- */
 
   function maybeAutoPicker() {
@@ -2635,6 +3431,7 @@
 
   function open(ds) {
     state.dsId = ds.id;
+    state.dsName = ds.name;
     var saved = loadState(ds.id);
     state.source = saved.source || 'builtin';
     state.filters = saved.filters || {};
@@ -2642,14 +3439,20 @@
     state.bins = saved.bins || 12;
     state.labels = !!saved.labels;
     state.charts = saved.charts || null;
-    state.rowsAll = sourceRows(ds.id, state.source);
+    state.clean = saved.clean || null;
+    state.calc = Array.isArray(saved.calc) ? saved.calc : [];
+    state.custom = saved.custom || {};
+    state.title = saved.title || '';
+    state.intro = saved.intro || '';
+    state.rowsRaw = sourceRows(ds.id, state.source);
     if (state.source !== 'builtin' && !uploads.some(function (u) { return u.id === state.source; })) {
       state.source = 'builtin';
-      state.rowsAll = D.seed(ds.id);
+      state.rowsRaw = D.seed(ds.id);
     }
-    state.present = D.presentKeys(ds.id, state.rowsAll);
+    rebuildRows();
 
-    headTitle.textContent = ds.name;
+    applyHeadText(ds);
+    renderAbout();
     sortSelect.value = state.sort;
     binValue.textContent = String(state.bins);
     labelsToggle.setAttribute('aria-pressed', String(state.labels));
@@ -2673,11 +3476,11 @@
 
   function refreshColors() {
     if (!state.dsId || dash.hidden) return;
-    Object.keys(state.cards).forEach(function (id) {
-      var rec = state.cards[id];
-      if (!rec.tableView) C.render(rec.host, rec.spec, { labels: state.labels, animate: false });
-    });
+    Object.keys(state.cards).forEach(function (id) { drawCard(state.cards[id], false); });
   }
 
   window.Dash = { open: open, close: close, refreshColors: refreshColors, toast: toast };
+
+  applySiteText();
+  renderAbout();
 })();
