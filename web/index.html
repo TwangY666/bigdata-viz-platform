@@ -86,6 +86,14 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V5M8 8.5l4-4 4 4"/><path d="M4.5 19h15"/></svg>
         打开数据
       </button>
+      <button class="icon-btn" type="button" id="page-btn"
+              aria-label="页面设置" title="页面设置 · 标题 / 介绍 / 关于">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5h16M4 10h10M4 14.5h16M4 19h7"/><circle cx="17.5" cy="18.5" r="2.4"/></svg>
+      </button>
+      <button class="icon-btn" type="button" id="about-btn"
+              aria-label="关于本工具" title="关于本工具">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5.5M12 7.8v.2"/></svg>
+      </button>
       <button class="icon-btn" type="button" id="grid-toggle"
               aria-pressed="true" aria-label="切换画布网格" title="画布网格  G">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/><rect x="3" y="3" width="18" height="18" rx="2.5"/></svg>
@@ -156,9 +164,15 @@
 
       <section class="dash" id="dash" hidden aria-label="数据看板">
         <header class="dash__head">
-          <p class="dash__eyebrow"><span class="dash__eyebrow-dot" aria-hidden="true"></span>校园学生类 · 看板</p>
+          <p class="dash__eyebrow"><span class="dash__eyebrow-dot" aria-hidden="true"></span><span id="dash-eyebrow">校园学生类 · 看板</span></p>
           <h2 class="dash__title" id="dash-title"></h2>
+          <p class="dash__intro" id="dash-intro" hidden></p>
           <p class="dash__meta" id="dash-meta"></p>
+          <nav class="dash__nav" aria-label="页内导航">
+            <a class="dash__nav-link" href="#dash-kpis">指标概览</a>
+            <a class="dash__nav-link" href="#dash-grid">图表</a>
+            <a class="dash__nav-link" href="#dash-about">关于本工具</a>
+          </nav>
         </header>
 
         <div class="dash__bar" role="region" aria-label="看板控制区">
@@ -177,6 +191,17 @@
           </div>
 
           <div class="bar-group" id="dash-filters"></div>
+
+          <div class="bar-group">
+            <button class="bar-btn" type="button" id="clean-btn" title="检查缺失值、重复行与异常值，并按规则清洗">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M7 12h10M10 18h4"/><circle cx="18.5" cy="17.5" r="2.6"/></svg>
+              数据清洗
+            </button>
+            <button class="bar-btn" type="button" id="calc-btn" title="用表达式定义新的计算字段">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3.5" width="16" height="17" rx="2.2"/><path d="M8 8h8M8 12.5h2.5M13.5 12.5h2.5M8 16.5h2.5M13.5 16.5h2.5"/></svg>
+              计算字段
+            </button>
+          </div>
 
           <div class="bar-group">
             <label class="ctl">
@@ -208,7 +233,11 @@
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v10M8 10.5l4 4 4-4"/><path d="M5 19h14"/></svg>
               导出 CSV
             </button>
-            <button class="bar-btn bar-btn--icon" type="button" id="reset-btn" aria-label="重置筛选与显示选项" title="重置筛选与显示选项">
+            <button class="bar-btn" type="button" id="report-btn" title="下载包含指标、全部图表与说明的独立 HTML 报告">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3.5h8l4 4V20a1 1 0 01-1 1H6a1 1 0 01-1-1V4.5a1 1 0 011-1z"/><path d="M13.5 3.6V8h4.2"/><path d="M8.5 13h7M8.5 16.5h4.5"/></svg>
+              下载报告
+            </button>
+            <button class="bar-btn bar-btn--icon" type="button" id="reset-btn" aria-label="重置选项" title="重置筛选 / 图表自定义 / 计算字段 / 清洗规则">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 12a7.5 7.5 0 107.5-7.5c-2.6 0-4.9 1.3-6.3 3.2"/><path d="M5 3.5v4.5h4.5"/></svg>
             </button>
           </div>
@@ -217,6 +246,14 @@
         <div class="kpis" id="dash-kpis"></div>
         <div class="dash__grid" id="dash-grid"></div>
         <p class="dash__foot" id="dash-foot"></p>
+
+        <section class="about" id="dash-about" aria-labelledby="about-heading">
+          <div class="about__head">
+            <h3 id="about-heading">关于本工具</h3>
+            <button class="ghost-btn ghost-btn--sm" type="button" id="about-edit">编辑内容</button>
+          </div>
+          <div class="about__body" id="about-body"></div>
+        </section>
       </section>
 
       <section class="wb" id="wb" hidden aria-label="分析工作台">
@@ -351,7 +388,7 @@
       <div class="modal__titles">
         <p class="modal__eyebrow">手动添加数据</p>
         <h2 id="upload-title">上传数据文件</h2>
-        <p class="modal__sub">支持 CSV / TSV / JSON · 自动识别 UTF-8 / GBK 编码 · 表头模糊匹配 · 不超过 8 MB</p>
+        <p class="modal__sub">支持 CSV / TSV / JSON · 自动识别 UTF-8 / GBK 编码 · 表头模糊匹配 · 不超过 64 MB / 30 万行</p>
       </div>
       <button class="icon-btn" type="button" data-close="upload" aria-label="关闭上传">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
@@ -383,6 +420,10 @@
         </div>
       </div>
       <p class="upload__error" id="upload-error" role="alert" hidden></p>
+      <div class="upload__progress" id="upload-progress" hidden>
+        <div class="upload__progress-bar"><i id="upload-progress-fill"></i></div>
+        <p class="upload__progress-text" id="upload-progress-text" role="status"></p>
+      </div>
     </div>
   </div>
 </div>
@@ -404,6 +445,267 @@
   </div>
 </div>
 
+<div class="modal" id="clean" hidden>
+  <div class="modal__scrim" data-close="clean"></div>
+  <div class="modal__panel modal__panel--wide" role="dialog" aria-modal="true" aria-labelledby="clean-title">
+    <header class="modal__head">
+      <div class="modal__titles">
+        <p class="modal__eyebrow">数据质量 · 清洗规则</p>
+        <h2 id="clean-title">数据清洗</h2>
+        <p class="modal__sub" id="clean-sub"></p>
+      </div>
+      <button class="icon-btn" type="button" data-close="clean" aria-label="关闭数据清洗">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </header>
+    <div class="modal__body">
+      <div class="clean__stats" id="clean-stats"></div>
+      <div class="clean__rules">
+        <label class="ctl">
+          <span class="ctl__label">缺失值</span>
+          <select class="ctl__input" id="clean-missing" data-autofocus>
+            <option value="keep">保留（图表自动跳过）</option>
+            <option value="drop">删除含缺失的行</option>
+            <option value="fill">填充缺失值</option>
+          </select>
+        </label>
+        <label class="ctl" id="clean-fill-wrap" hidden>
+          <span class="ctl__label">数值填充方式</span>
+          <select class="ctl__input" id="clean-fill">
+            <option value="mean">均值</option>
+            <option value="median">中位数</option>
+            <option value="zero">零</option>
+          </select>
+        </label>
+        <label class="ctl">
+          <span class="ctl__label">异常值 (IQR)</span>
+          <select class="ctl__input" id="clean-outliers">
+            <option value="keep">保留</option>
+            <option value="clip">截断到上下界</option>
+            <option value="drop">删除所在行</option>
+          </select>
+        </label>
+        <div class="ctl ctl--toggle">
+          <span class="ctl__label">重复行</span>
+          <button class="ctl__toggle" type="button" id="clean-dedupe" aria-pressed="false">去除完全重复行</button>
+        </div>
+        <div class="ctl ctl--toggle">
+          <span class="ctl__label">文本</span>
+          <button class="ctl__toggle" type="button" id="clean-trim" aria-pressed="false">合并空白字符</button>
+        </div>
+      </div>
+      <p class="clean__impact" id="clean-impact" role="status"></p>
+      <div class="clean__table" id="clean-table"></div>
+    </div>
+    <footer class="modal__foot">
+      <div class="modal__foot-left">
+        <button class="ghost-btn" type="button" id="clean-reset">恢复原始数据</button>
+      </div>
+      <div class="modal__foot-right">
+        <button class="ghost-btn" type="button" data-close="clean">取消</button>
+        <button class="primary-btn" type="button" id="clean-apply">应用清洗</button>
+      </div>
+    </footer>
+  </div>
+</div>
+
+<div class="modal" id="calc" hidden>
+  <div class="modal__scrim" data-close="calc"></div>
+  <div class="modal__panel modal__panel--wide" role="dialog" aria-modal="true" aria-labelledby="calc-title">
+    <header class="modal__head">
+      <div class="modal__titles">
+        <p class="modal__eyebrow">自定义计算逻辑</p>
+        <h2 id="calc-title">计算字段</h2>
+        <p class="modal__sub">用表达式生成新字段，自动生成直方图与分组对比图，并参与筛选与导出</p>
+      </div>
+      <button class="icon-btn" type="button" data-close="calc" aria-label="关闭计算字段">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </header>
+    <div class="modal__body">
+      <div class="calc__list" id="calc-list"></div>
+      <div class="calc__form">
+        <label class="ctl ctl--block">
+          <span class="ctl__label">字段名称</span>
+          <input class="ctl__input" type="text" id="calc-name" maxlength="20" autocomplete="off" placeholder="例如：加权总分" data-autofocus>
+        </label>
+        <label class="ctl ctl--block">
+          <span class="ctl__label">表达式</span>
+          <input class="ctl__input ctl__input--code" type="text" id="calc-expr" autocomplete="off" spellcheck="false" placeholder="例如：[数学] * 0.4 + [语文] * 0.6">
+        </label>
+        <p class="calc__error" id="calc-error" role="alert" hidden></p>
+        <p class="calc__preview" id="calc-preview" role="status"></p>
+        <div class="calc__fields" id="calc-fields"></div>
+        <p class="calc__help">支持 <code>+ - * / % ^</code>、比较与 <code>&amp;&amp; ||</code>，函数 <code id="calc-funcs"></code>。点击字段名可插入引用。</p>
+        <div class="upload__actions">
+          <button class="primary-btn" type="button" id="calc-add">添加字段</button>
+          <button class="ghost-btn" type="button" id="calc-clear">清空输入</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="chart-custom" hidden>
+  <div class="modal__scrim" data-close="chart-custom"></div>
+  <div class="modal__panel" role="dialog" aria-modal="true" aria-labelledby="cc-title">
+    <header class="modal__head">
+      <div class="modal__titles">
+        <p class="modal__eyebrow">图表自定义</p>
+        <h2 id="cc-title"></h2>
+        <p class="modal__sub">仅影响这张图表，设置会保存在本浏览器</p>
+      </div>
+      <button class="icon-btn" type="button" data-close="chart-custom" aria-label="关闭图表自定义">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </header>
+    <div class="modal__body">
+      <label class="ctl ctl--block">
+        <span class="ctl__label">图表标题</span>
+        <input class="ctl__input" type="text" id="cc-name" maxlength="30" autocomplete="off" data-autofocus>
+      </label>
+      <label class="ctl ctl--block">
+        <span class="ctl__label">图表说明</span>
+        <input class="ctl__input" type="text" id="cc-desc" maxlength="60" autocomplete="off">
+      </label>
+      <div class="cc__row">
+        <label class="ctl">
+          <span class="ctl__label">配色方案</span>
+          <select class="ctl__input" id="cc-scheme"></select>
+        </label>
+        <label class="ctl" id="cc-color-wrap" hidden>
+          <span class="ctl__label">主色</span>
+          <input class="ctl__input ctl__input--color" type="color" id="cc-color" value="#2fe0c6">
+        </label>
+        <label class="ctl">
+          <span class="ctl__label">卡片宽度</span>
+          <select class="ctl__input" id="cc-span">
+            <option value="0">自动</option>
+            <option value="4">1/3 宽</option>
+            <option value="6">半宽</option>
+            <option value="8">2/3 宽</option>
+            <option value="12">整行</option>
+          </select>
+        </label>
+      </div>
+      <div class="cc__swatches" id="cc-swatches" aria-hidden="true"></div>
+      <div class="cc__toggles">
+        <button class="ctl__toggle" type="button" id="cc-labels" aria-pressed="false">数值标签</button>
+        <button class="ctl__toggle" type="button" id="cc-grid" aria-pressed="true">网格线</button>
+        <button class="ctl__toggle" type="button" id="cc-legend" aria-pressed="true">图例</button>
+      </div>
+    </div>
+    <footer class="modal__foot">
+      <div class="modal__foot-left">
+        <button class="ghost-btn" type="button" id="cc-reset">恢复默认</button>
+      </div>
+      <div class="modal__foot-right">
+        <button class="primary-btn" type="button" id="cc-apply">应用</button>
+      </div>
+    </footer>
+  </div>
+</div>
+
+<div class="modal" id="page" hidden>
+  <div class="modal__scrim" data-close="page"></div>
+  <div class="modal__panel" role="dialog" aria-modal="true" aria-labelledby="page-title">
+    <header class="modal__head">
+      <div class="modal__titles">
+        <p class="modal__eyebrow">页面文案</p>
+        <h2 id="page-title">页面设置</h2>
+        <p class="modal__sub">标题、项目介绍与「关于本工具」都可自定义，保存在本浏览器</p>
+      </div>
+      <button class="icon-btn" type="button" data-close="page" aria-label="关闭页面设置">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </header>
+    <div class="modal__body">
+      <div class="cc__row">
+        <label class="ctl ctl--block">
+          <span class="ctl__label">站点名称</span>
+          <input class="ctl__input" type="text" id="pg-site" maxlength="20" autocomplete="off" data-autofocus>
+        </label>
+        <label class="ctl ctl--block">
+          <span class="ctl__label">站点副标题</span>
+          <input class="ctl__input" type="text" id="pg-sub" maxlength="30" autocomplete="off">
+        </label>
+      </div>
+      <label class="ctl ctl--block">
+        <span class="ctl__label">当前看板标题（留空使用数据集名）</span>
+        <input class="ctl__input" type="text" id="pg-dash" maxlength="30" autocomplete="off">
+      </label>
+      <label class="ctl ctl--block">
+        <span class="ctl__label">项目介绍</span>
+        <textarea class="ctl__input ctl__input--area" id="pg-intro" rows="3" maxlength="300" placeholder="说明这个看板的用途、数据口径或分析目标"></textarea>
+      </label>
+      <label class="ctl ctl--block">
+        <span class="ctl__label">「关于本工具」标题</span>
+        <input class="ctl__input" type="text" id="pg-about-title" maxlength="24" autocomplete="off">
+      </label>
+      <label class="ctl ctl--block">
+        <span class="ctl__label">「关于本工具」正文（空行分段）</span>
+        <textarea class="ctl__input ctl__input--area" id="pg-about" rows="6" maxlength="1200"></textarea>
+      </label>
+    </div>
+    <footer class="modal__foot">
+      <div class="modal__foot-left">
+        <button class="ghost-btn" type="button" id="pg-reset">恢复默认文案</button>
+      </div>
+      <div class="modal__foot-right">
+        <button class="primary-btn" type="button" id="pg-apply">保存</button>
+      </div>
+    </footer>
+  </div>
+</div>
+
+<div class="modal" id="about" hidden>
+  <div class="modal__scrim" data-close="about"></div>
+  <div class="modal__panel" role="dialog" aria-modal="true" aria-labelledby="about-modal-title">
+    <header class="modal__head">
+      <div class="modal__titles">
+        <p class="modal__eyebrow">项目说明</p>
+        <h2 id="about-modal-title">关于本工具</h2>
+      </div>
+      <button class="icon-btn" type="button" data-close="about" aria-label="关闭关于">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </header>
+    <div class="modal__body about__body" id="about-modal-body"></div>
+    <footer class="modal__foot">
+      <div class="modal__foot-left"></div>
+      <div class="modal__foot-right">
+        <button class="ghost-btn" type="button" id="about-modal-edit">编辑内容</button>
+        <button class="primary-btn" type="button" data-close="about">知道了</button>
+      </div>
+    </footer>
+  </div>
+</div>
+
+<div class="modal" id="reset" hidden>
+  <div class="modal__scrim" data-close="reset"></div>
+  <div class="modal__panel modal__panel--narrow" role="dialog" aria-modal="true" aria-labelledby="reset-title">
+    <header class="modal__head">
+      <div class="modal__titles">
+        <p class="modal__eyebrow">重置</p>
+        <h2 id="reset-title">选择要重置的内容</h2>
+      </div>
+      <button class="icon-btn" type="button" data-close="reset" aria-label="关闭重置">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </header>
+    <div class="modal__body">
+      <div class="reset__list" id="reset-list"></div>
+    </div>
+    <footer class="modal__foot">
+      <div class="modal__foot-left"></div>
+      <div class="modal__foot-right">
+        <button class="ghost-btn" type="button" data-close="reset">取消</button>
+        <button class="primary-btn" type="button" id="reset-apply">重置所选</button>
+      </div>
+    </footer>
+  </div>
+</div>
+
 <div class="modal" id="wb-import" hidden>
   <div class="modal__scrim" data-close="wb-import"></div>
   <div class="modal__panel modal__panel--wide" role="dialog" aria-modal="true" aria-labelledby="wb-import-title">
@@ -411,7 +713,7 @@
       <div class="modal__titles">
         <p class="modal__eyebrow" id="wb-import-step">第一步 · 选择文件</p>
         <h2 id="wb-import-title" tabindex="-1">打开自己的表</h2>
-        <p class="modal__sub" id="wb-import-sub">支持 CSV / TSV / 分隔文本 TXT · 自动识别 UTF-8 / GBK / UTF-16 · 单个文件不超过 8 MB · 表头与单元格原样显示</p>
+        <p class="modal__sub" id="wb-import-sub">支持 CSV / TSV / 分隔文本 TXT · 自动识别 UTF-8 / GBK / UTF-16 · 不超过 64 MB / 30 万行 · 表头与单元格原样显示</p>
       </div>
       <button class="icon-btn" type="button" data-close="wb-import" aria-label="关闭导入">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
@@ -437,7 +739,7 @@
           <input class="ctl__input" type="text" id="wb-preview-name" maxlength="40" autocomplete="off">
         </label>
         <div class="upload__actions">
-          <button class="primary-btn" type="button" id="wb-preview-confirm" data-autofocus>进入工作台</button>
+          <button class="primary-btn" type="button" id="wb-preview-confirm">进入工作台</button>
           <button class="ghost-btn" type="button" id="wb-preview-again">重新选择</button>
         </div>
       </div>
@@ -453,6 +755,8 @@
 
 <script src="/assets/js/data.js" defer></script>
 <script src="/assets/js/charts.js" defer></script>
+<script src="/assets/js/clean.js" defer></script>
+<script src="/assets/js/calc.js" defer></script>
 <script src="/assets/js/dash.js" defer></script>
 <script src="/assets/js/catalog.js" defer></script>
 <script src="/assets/js/workbench.js" defer></script>

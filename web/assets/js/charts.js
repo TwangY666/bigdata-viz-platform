@@ -10,6 +10,10 @@
     return v || fallback;
   }
 
+  /* 逐元素比较：Math.min.apply 在十万级数组上会爆栈 */
+  function minOf(a) { var m = Infinity; for (var i = 0; i < a.length; i++) if (a[i] < m) m = a[i]; return m; }
+  function maxOf(a) { var m = -Infinity; for (var i = 0; i < a.length; i++) if (a[i] > m) m = a[i]; return m; }
+
   function palette() {
     var series = [];
     for (var i = 1; i <= 8; i++) series.push(css('--c-series-' + i, '#2fe0c6'));
@@ -169,11 +173,11 @@
     var sums = x.map(function (_, i) {
       return series.reduce(function (a, s) { return a + (Number(s.values[i]) || 0); }, 0);
     });
-    var maxV = mode === 'stack' ? Math.max.apply(null, sums) : Math.max.apply(null, series.reduce(function (a, s) { return a.concat(s.values.map(Number)); }, []));
+    var maxV = mode === 'stack' ? maxOf(sums) : maxOf(series.reduce(function (a, s) { return a.concat(s.values.map(Number)); }, []));
     if (!isFinite(maxV) || maxV <= 0) maxV = 1;
     var ticks = niceTicks(0, maxV * 1.06, 5);
     var top = ticks[ticks.length - 1];
-    var maxLab = Math.max.apply(null, x.map(function (l) { return textW(String(l), 10.5); }));
+    var maxLab = maxOf(x.map(function (l) { return textW(String(l), 10.5); }));
     var mL = axisLeft(ticks, fmtMode, 46);
     var rotate = maxLab * x.length > (w - mL - 14) * 0.92 && x.length > 3;
     var m = { t: spec.yLabel ? 22 : 14, r: 14, b: rotate ? rotBottom(maxLab, 74, 46) : 30, l: mL };
@@ -227,11 +231,11 @@
     var values = (spec.series && spec.series[0] && spec.series[0].values) || [];
     if (!x.length) return { svg: emptySvg(w, h, p), legend: [] };
     var fmtMode = spec.fmt || 'num';
-    var maxV = Math.max.apply(null, values.map(Number).concat([1]));
+    var maxV = maxOf(values.map(Number).concat([1]));
     var ticks = niceTicks(0, maxV * 1.08, 4);
     var top = ticks[ticks.length - 1];
     var labCap = Math.max(104, Math.min(240, w * 0.24));
-    var labW = Math.min(labCap, Math.max.apply(null, x.map(function (l) { return textW(String(l), 11); })) + 14);
+    var labW = Math.min(labCap, maxOf(x.map(function (l) { return textW(String(l), 11); })) + 14);
     var m = { t: 12, r: opts.labels ? 52 : 18, b: 26, l: labW };
     var plotW = w - m.l - m.r, plotH = h - m.t - m.b;
     if (plotW < 40 || plotH < 30) return { svg: emptySvg(w, h, p, '图表区域过小'), legend: [] };
@@ -268,7 +272,7 @@
     if (x.length < 2 || !series.length) return { svg: emptySvg(w, h, p), legend: [] };
     var fmtMode = spec.fmt || 'num';
     var all = series.reduce(function (a, s) { return a.concat(s.values.map(Number)); }, []);
-    var maxV = Math.max.apply(null, all), minV = Math.min.apply(null, all);
+    var maxV = maxOf(all), minV = minOf(all);
     if (!isFinite(maxV)) maxV = 1;
     var lo = spec.zero === false ? minV : Math.min(0, minV);
     var ticks = niceTicks(lo, maxV * 1.08, 5);
@@ -375,8 +379,8 @@
     var pts = spec.points || [];
     if (pts.length < 2) return { svg: emptySvg(w, h, p), legend: [] };
     var xs = pts.map(function (d) { return d.x; }), ys = pts.map(function (d) { return d.y; });
-    var xMin = Math.min.apply(null, xs), xMax = Math.max.apply(null, xs);
-    var yMin = Math.min.apply(null, ys), yMax = Math.max.apply(null, ys);
+    var xMin = minOf(xs), xMax = maxOf(xs);
+    var yMin = minOf(ys), yMax = maxOf(ys);
     var xPad = (xMax - xMin) * 0.06 || 1, yPad = (yMax - yMin) * 0.08 || 1;
     var xt = niceTicks(xMin - xPad, xMax + xPad, 5);
     var yt = niceTicks(yMin - yPad, yMax + yPad, 5);
@@ -412,8 +416,8 @@
   function box(spec, p, w, h, opts) {
     var groups = spec.groups || [];
     if (!groups.length) return { svg: emptySvg(w, h, p), legend: [] };
-    var lo = Math.min.apply(null, groups.map(function (g) { return g.min; }));
-    var hi = Math.max.apply(null, groups.map(function (g) { return g.max; }));
+    var lo = minOf(groups.map(function (g) { return g.min; }));
+    var hi = maxOf(groups.map(function (g) { return g.max; }));
     var ticks = niceTicks(lo - (hi - lo) * 0.08, hi + (hi - lo) * 0.08, 5);
     var m = { t: spec.yLabel ? 22 : 14, r: 16, b: 30, l: axisLeft(ticks, spec.fmt, 46) };
     var plotW = w - m.l - m.r, plotH = h - m.t - m.b;
@@ -451,8 +455,8 @@
     var maxV = 0;
     vals.forEach(function (row) { row.forEach(function (v) { if (Number(v) > maxV) maxV = Number(v); }); });
     if (maxV <= 0) maxV = 1;
-    var labW = Math.min(72, Math.max.apply(null, ys.map(function (l) { return textW(String(l), 10.5); })) + 10);
-    var maxLab = Math.max.apply(null, xs.map(function (l) { return textW(String(l), 10.5); }));
+    var labW = Math.min(72, maxOf(ys.map(function (l) { return textW(String(l), 10.5); })) + 10);
+    var maxLab = maxOf(xs.map(function (l) { return textW(String(l), 10.5); }));
     var rotate = maxLab * xs.length > (w - labW - 20) * 0.95;
     var m = { t: 12, r: 12, b: rotate ? rotBottom(maxLab, 60, 44) : 26, l: labW };
     var plotW = w - m.l - m.r, plotH = h - m.t - m.b;
@@ -499,8 +503,8 @@
     var xs = spec.x || [], ys = spec.y || [], vals = spec.values || [];
     if (!xs.length || !ys.length) return { svg: emptySvg(w, h, p), legend: [] };
     var neg = p.series[3], pos = p.series[1], base = p.surface;
-    var labW = Math.min(88, Math.max.apply(null, ys.map(function (l) { return textW(String(l), 10.5); })) + 10);
-    var maxLab = Math.max.apply(null, xs.map(function (l) { return textW(String(l), 10.5); }));
+    var labW = Math.min(88, maxOf(ys.map(function (l) { return textW(String(l), 10.5); })) + 10);
+    var maxLab = maxOf(xs.map(function (l) { return textW(String(l), 10.5); }));
     var rotate = maxLab * xs.length > (w - labW - 20) * 0.95;
     var m = { t: 12, r: 12, b: rotate ? rotBottom(maxLab, 62, 46) : 26, l: labW };
     var plotW = w - m.l - m.r, plotH = h - m.t - m.b;
@@ -550,9 +554,64 @@
     hbar: hbars, line: line, donut: donut, scatter: scatter, box: box, heat: heat, corr: corr
   };
 
+  var SCHEME_BASE = {
+    ocean: ['#38bdf8', '#22d3ee', '#818cf8', '#2dd4bf', '#60a5fa'],
+    sunset: ['#fb923c', '#f472b6', '#fbbf24', '#f87171', '#facc15'],
+    forest: ['#4ade80', '#a3e635', '#14b8a6', '#84cc16', '#22c55e'],
+    berry: ['#c084fc', '#f472b6', '#818cf8', '#e879f9', '#a78bfa'],
+    slate: ['#94a3b8', '#cbd5e1', '#64748b', '#e2e8f0', '#475569']
+  };
+
+  var SCHEMES = [
+    { id: 'theme', name: '跟随主题' },
+    { id: 'ocean', name: '海洋蓝' },
+    { id: 'sunset', name: '日落橙' },
+    { id: 'forest', name: '森林绿' },
+    { id: 'berry', name: '莓果紫' },
+    { id: 'slate', name: '石墨灰' },
+    { id: 'custom', name: '自定义主色' }
+  ];
+
+  function schemeColors(id, hex) {
+    if (id === 'custom') {
+      var base = /^#[0-9a-f]{6}$/i.test(hex || '') ? hex : '#2fe0c6';
+      return [base, mix(base, '#ffffff', 0.26), mix(base, '#000000', 0.26),
+        mix(base, '#ffffff', 0.52), mix(base, '#000000', 0.5),
+        mix(base, '#ffffff', 0.72), mix(base, '#000000', 0.12), mix(base, '#ffffff', 0.12)];
+    }
+    var seed = SCHEME_BASE[id];
+    if (!seed) return null;
+    var out = seed.slice();
+    for (var i = 0; out.length < 8; i++) out.push(mix(seed[i % seed.length], '#ffffff', 0.3));
+    return out;
+  }
+
+  function recolor(spec, colors) {
+    var s = {};
+    Object.keys(spec).forEach(function (k) { s[k] = spec[k]; });
+    var pick = function (i) { return colors[i % colors.length]; };
+    if (spec.series) s.series = spec.series.map(function (ser, i) {
+      var o = {}; Object.keys(ser).forEach(function (k) { o[k] = ser[k]; }); o.color = pick(i); return o;
+    });
+    if (spec.colors) s.colors = (spec.x || spec.colors).map(function (_, i) { return pick(i); });
+    if (spec.slices) s.slices = spec.slices.map(function (sl, i) {
+      var o = {}; Object.keys(sl).forEach(function (k) { o[k] = sl[k]; }); o.color = pick(i); return o;
+    });
+    if (spec.groups) s.groups = spec.groups.map(function (g, i) {
+      var o = {}; Object.keys(g).forEach(function (k) { o[k] = g[k]; }); o.color = pick(i); return o;
+    });
+    return s;
+  }
+
   function render(host, spec, opts) {
     opts = opts || {};
     var p = palette();
+    if (opts.colors && opts.colors.length) {
+      p.series = opts.colors;
+      p.accent = opts.colors[0];
+      spec = recolor(spec, opts.colors);
+    }
+    if (opts.grid === false) p.soft = 'none';
     var w = Math.max(160, host.clientWidth || 560);
     var h = Math.max(120, host.clientHeight || 240);
     var fn = RENDERERS[spec.kind] || bars;
@@ -598,6 +657,8 @@
   window.Charts = {
     render: render,
     palette: palette,
+    SCHEMES: SCHEMES,
+    schemeColors: schemeColors,
     fmt: fmt,
     serialize: serialize,
     png: png,

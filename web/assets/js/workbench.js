@@ -7,7 +7,9 @@
 
   var D = window.DATA, C = window.Charts, DASH = window.Dash;
   var root = document.documentElement;
-  var MAX_BYTES = 8 * 1048576;
+  /* 与示例看板同一套上限：64 MB 文件、D.MAX_ROWS 行（超出截断） */
+  var MAX_BYTES = 64 * 1048576;
+  var MAX_ROWS = D.MAX_ROWS || 300000;
   var PREVIEW_ROWS = 10;
   var DETAIL_ROWS = 300;
   var MAX_BARS = 24;
@@ -197,7 +199,8 @@
     dom['wb-name'].textContent = t.name;
     dom['wb-meta'].textContent = t.fileName + ' · ' + DASH.humanSize(t.size) + ' · ' + t.format +
       (t.encoding && t.encoding !== 'UTF-8' ? ' · ' + t.encoding + ' 编码' : '') +
-      ' · ' + t.rows.length + ' 行 × ' + t.columns.length + ' 列';
+      ' · ' + t.rows.length + ' 行 × ' + t.columns.length + ' 列' +
+      (t.truncated ? '（原 ' + t.totalRows + ' 行，超出上限已截断）' : '');
 
     var aggWord = counting ? '计数' : (cfg.agg === 'avg' ? '取平均' : '求和');
     dom['wb-title'].textContent = counting
@@ -306,6 +309,10 @@
         ' 条无法解析为数字，均按空值处理，' + agg.totals.used + ' 条参与计算。');
     }
     if (rows.length && wb.table.ragged.length) msgs.push(raggedMsg());
+    if (wb.table.truncated) {
+      msgs.push('文件共 ' + wb.table.totalRows + ' 行，超过 ' + MAX_ROWS + ' 行上限，工作台只用前 ' +
+        MAX_ROWS + ' 行，被截掉的 ' + wb.table.truncated + ' 行不参与计算。');
+    }
     if (agg.items.length > MAX_BARS) {
       msgs.push('分组共 ' + agg.items.length + ' 个，图上按数值降序显示前 ' + MAX_BARS + ' 个；数据明细仍是全部 ' +
         rows.length + ' 行。');
@@ -395,7 +402,7 @@
     if (!file) return;
     var token = ++wb.token;
     if (file.size > MAX_BYTES) {
-      importError('「' + file.name + '」有 ' + DASH.humanSize(file.size) + '，超过 8 MB 上限。请删减行或拆分后再打开；当前表与配置保持不变。');
+      importError('「' + file.name + '」有 ' + DASH.humanSize(file.size) + '，超过 64 MB 上限。请删减行或拆分后再打开；当前表与配置保持不变。');
       return;
     }
     var m = /\.([a-z0-9]+)$/i.exec(file.name);
@@ -456,6 +463,8 @@
       }).join('') + '</tbody></table>';
 
     dom['wb-preview-note'].textContent = '预览前 ' + show.length + ' 行 / 共 ' + t.rowCount + ' 行。' +
+      (t.rowCount > MAX_ROWS ? '行数超过 ' + MAX_ROWS.toLocaleString('zh-CN') + ' 行上限，进入工作台只取前 ' +
+        MAX_ROWS.toLocaleString('zh-CN') + ' 行。' : '') +
       (t.ragged.length ? raggedMsgFor(t) : '各行列数一致。') +
       ' 带前导零的编号已按文本保留。';
     dom['wb-preview-name'].value = stemOf(p.file.name);
@@ -487,6 +496,11 @@
     if (!p) return;
     var t = p.parsed;
     t.columns.forEach(function (c, i) { c.index = i; });
+    var rows = t.rows, truncated = 0;
+    if (rows.length > MAX_ROWS) {
+      truncated = rows.length - MAX_ROWS;
+      rows = rows.slice(0, MAX_ROWS);
+    }
     wb.table = {
       name: dom['wb-preview-name'].value.trim() || stemOf(p.file.name),
       fileName: p.file.name,
@@ -494,7 +508,9 @@
       format: t.format,
       encoding: p.encoding,
       columns: t.columns,
-      rows: t.rows,
+      rows: rows,
+      totalRows: t.rowCount,
+      truncated: truncated,
       ragged: t.ragged
     };
     wb.cfg = defaultCfg();
