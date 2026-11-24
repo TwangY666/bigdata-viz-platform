@@ -81,16 +81,6 @@
     return saved === 'open' ? 'open' : 'closed';
   }
 
-  window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', function (e) {
-    var saved = null;
-    try { saved = localStorage.getItem('console.theme'); } catch (err) {}
-    if (saved !== 'light' && saved !== 'dark') {
-      root.setAttribute('data-theme', e.matches ? 'light' : 'dark');
-      syncTheme();
-      if (window.Dash) window.Dash.refreshColors();
-    }
-  });
-
   function trapTab(e) {
     var focusables = rail.querySelectorAll('button:not([hidden]), input, [tabindex="0"]');
     var items = Array.prototype.filter.call(focusables, function (el) {

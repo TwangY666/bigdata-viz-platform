@@ -1,0 +1,394 @@
+/* ============================================================
+   分析工作台 · 打开自己的表 → 选字段 → 看图 → 核对明细
+   仅使用 shell.css 的主题令牌，浅色/深色自动跟随。
+   ============================================================ */
+
+:root[data-wb="on"] .canvas__grid { display: none; }
+:root[data-wb="on"] .dash { display: none; }
+
+/* 落地页与工作台弱化背景网格，示例看板保持原样 */
+:root[data-wb="on"] .canvas__surface,
+:root:not([data-dash="on"]):not([data-wb="on"]) .canvas__surface { opacity: 0.42; }
+
+.wb {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+/* --- 活动表头 --- */
+
+.wb__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--sp-3);
+  animation: rise var(--dur-slow) var(--ease) both;
+}
+.wb__lead { min-width: 0; flex: 1 1 320px; }
+.wb__eyebrow {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin: 0 0 var(--sp-1);
+  font-size: var(--fs-meta);
+  font-weight: 650;
+  letter-spacing: 0.14em;
+  color: var(--site-muted);
+}
+.wb__eyebrow-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--c-series-1);
+  box-shadow: 0 0 10px color-mix(in oklab, var(--c-series-1) 70%, transparent);
+}
+.wb__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: calc(26px * var(--site-type, 1));
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--c-fg-strong);
+  overflow-wrap: anywhere;
+}
+.wb__meta {
+  margin: var(--sp-1) 0 0;
+  font-family: var(--font-data);
+  font-size: var(--fs-meta);
+  color: var(--site-muted);
+  overflow-wrap: anywhere;
+}
+.wb__head-actions { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+
+/* --- 三栏骨架 --- */
+
+.wb__body {
+  display: grid;
+  grid-template-columns: 160px minmax(0, 1fr) 280px;
+  gap: var(--sp-4);
+  align-items: start;
+  min-width: 0;
+}
+
+.wb__nav {
+  position: sticky;
+  top: var(--sp-2);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  animation: rise var(--dur-slow) var(--ease) both;
+}
+.wb__navbtn {
+  padding: 11px var(--sp-3);
+  font: inherit;
+  font-size: var(--fs-label);
+  font-weight: 600;
+  text-align: left;
+  color: var(--c-fg);
+  background: color-mix(in oklab, var(--c-surface-2) 62%, transparent);
+  border: 1px solid var(--site-border);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: background-color var(--dur) var(--ease), color var(--dur) var(--ease),
+              border-color var(--dur) var(--ease);
+}
+.wb__navbtn:hover {
+  border-color: color-mix(in oklab, var(--site-accent) 44%, var(--site-border));
+  color: var(--c-accent-ink);
+}
+.wb__navbtn[aria-pressed="true"] {
+  color: var(--c-accent-ink);
+  background: color-mix(in oklab, var(--site-accent) 15%, var(--c-surface));
+  border-color: color-mix(in oklab, var(--site-accent) 48%, var(--site-border));
+}
+.wb__navbtn:focus-visible { outline: 3px solid color-mix(in oklab, var(--site-accent) 70%, transparent); outline-offset: 2px; }
+
+.wb__stage {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+/* --- 画布卡片 --- */
+
+.wb__card {
+  padding: var(--sp-4) var(--sp-5) var(--sp-5);
+  background: var(--c-surface);
+  border: 1px solid var(--site-border);
+  border-radius: var(--r-md);
+  box-shadow: var(--c-shadow);
+  animation: rise var(--dur-slow) var(--ease) both;
+  min-width: 0;
+}
+.wb__card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-2) var(--sp-4);
+}
+.wb__card-titles { min-width: 0; }
+.wb__chart-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: calc(21px * var(--site-type, 1));
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--c-fg-strong);
+}
+.wb__formula {
+  margin: 4px 0 0;
+  font-family: var(--font-data);
+  font-size: var(--fs-meta);
+  color: var(--site-muted);
+}
+.wb__unit {
+  margin: 0;
+  font-family: var(--font-data);
+  font-size: var(--fs-meta);
+  color: var(--c-accent-ink);
+  white-space: nowrap;
+}
+.wb__chart {
+  height: clamp(230px, 40vh, 360px);
+  margin-top: var(--sp-3);
+  min-width: 0;
+}
+.wb__chart svg { display: block; }
+.wb__chart-empty {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  margin: 0;
+  font-size: var(--fs-label);
+  color: var(--site-muted);
+  border: 1px dashed var(--site-border);
+  border-radius: var(--r-sm);
+}
+
+.wb__summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+  gap: var(--sp-2) var(--sp-4);
+  margin-top: var(--sp-4);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--c-border-soft);
+}
+.wb__stat { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.wb__stat span {
+  font-size: var(--fs-micro);
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  color: var(--site-muted);
+}
+.wb__stat b {
+  font-family: var(--font-data);
+  font-size: calc(17px * var(--site-type, 1));
+  font-weight: 700;
+  color: var(--c-fg-strong);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+/* --- 数据明细 --- */
+
+.wb__scroll {
+  max-height: min(62vh, 620px);
+  overflow: auto;
+  margin-top: var(--sp-3);
+  border: 1px solid var(--c-border-soft);
+  border-radius: var(--r-sm);
+}
+.wb__table th { vertical-align: bottom; }
+.wb__th-kind {
+  display: block;
+  margin-top: 2px;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: color-mix(in oklab, var(--site-accent) 62%, var(--site-muted));
+}
+.wb__table td.wb__num {
+  font-family: var(--font-data);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.wb__void {
+  font-size: var(--fs-micro);
+  color: color-mix(in oklab, var(--site-muted) 76%, transparent);
+}
+
+/* --- 核对提示 --- */
+
+.wb__notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-3);
+  margin: 0;
+  padding: var(--sp-3);
+  font-size: var(--fs-label);
+  color: var(--c-fg);
+  background: color-mix(in oklab, var(--site-accent) 9%, transparent);
+  border: 1px solid color-mix(in oklab, var(--site-accent) 32%, transparent);
+  border-radius: var(--r-sm);
+}
+.wb__link {
+  padding: 0;
+  font: inherit;
+  font-weight: 700;
+  color: var(--c-accent-ink);
+  background: none;
+  border: 0;
+  border-bottom: 1px solid color-mix(in oklab, var(--site-accent) 60%, transparent);
+  cursor: pointer;
+}
+.wb__link:focus-visible { outline: 3px solid color-mix(in oklab, var(--site-accent) 70%, transparent); outline-offset: 2px; }
+
+/* --- 右侧字段配置 --- */
+
+.wb__panel {
+  position: sticky;
+  top: var(--sp-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  padding: var(--sp-4);
+  background: color-mix(in oklab, var(--c-surface-2) 82%, transparent);
+  border: 1px solid var(--site-border);
+  border-radius: var(--r-md);
+  animation: rise var(--dur-slow) var(--ease) both;
+  min-width: 0;
+}
+.wb__panel-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--fs-label);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--c-fg-strong);
+}
+.wb__panel .ctl__input { width: 100%; min-width: 0; }
+.wb__filter {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--c-border-soft);
+}
+/* 明细视图只需要筛选，图表配置留给分析报表 */
+#wb[data-view="detail"] .wb__cfg { display: none; }
+#wb[data-view="detail"] .wb__filter { padding-top: 0; border-top: 0; }
+
+.wb__filter-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-3);
+  margin: var(--sp-3) 0 0;
+  padding: var(--sp-2) var(--sp-3);
+  font-family: var(--font-data);
+  font-size: var(--fs-meta);
+  color: var(--c-accent-ink);
+  background: color-mix(in oklab, var(--site-accent) 8%, transparent);
+  border: 1px solid color-mix(in oklab, var(--site-accent) 26%, transparent);
+  border-radius: var(--r-sm);
+}
+.wb__filter-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin: 0;
+  font-size: var(--fs-micro);
+  font-weight: 650;
+  letter-spacing: 0.1em;
+  color: var(--site-muted);
+}
+.wb__panel-foot {
+  margin: 0;
+  font-size: var(--fs-micro);
+  line-height: 1.5;
+  color: var(--site-muted);
+}
+
+/* --- 导入预览 --- */
+
+.wb-force {
+  margin-left: 6px;
+  padding: 1px 6px;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 650;
+  color: var(--site-muted);
+  background: color-mix(in oklab, var(--c-overlay) 70%, transparent);
+  border: 1px solid var(--site-border);
+  border-radius: 999px;
+  cursor: pointer;
+}
+.wb-force:hover { color: var(--c-accent-ink); border-color: color-mix(in oklab, var(--site-accent) 44%, var(--site-border)); }
+.wb-force[aria-pressed="true"] {
+  color: var(--c-accent-ink);
+  background: color-mix(in oklab, var(--site-accent) 16%, transparent);
+  border-color: color-mix(in oklab, var(--site-accent) 46%, var(--site-border));
+}
+.wb-force:focus-visible { outline: 3px solid color-mix(in oklab, var(--site-accent) 70%, transparent); outline-offset: 2px; }
+.wb-import__note {
+  margin: var(--sp-3) 0 0;
+  font-size: var(--fs-meta);
+  color: var(--site-muted);
+}
+#wb-preview-table { max-height: 268px; }
+
+/* --- 落地页 --- */
+
+.landing__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--sp-3);
+  margin-top: var(--sp-4);
+}
+.landing__foot {
+  margin: var(--sp-3) 0 0;
+  font-size: var(--fs-meta);
+  color: var(--site-muted);
+}
+#canvas-hint svg { stroke: var(--site-accent); opacity: 0.9; }
+
+/* --- 收窄 --- */
+
+@media (max-width: 1180px) {
+  .wb__body { grid-template-columns: 138px minmax(0, 1fr) 258px; }
+}
+@media (max-width: 1040px) {
+  .wb__body { grid-template-columns: 118px minmax(0, 1fr) 236px; gap: var(--sp-3); }
+  .wb__card { padding: var(--sp-4); }
+}
+@media (max-width: 899px) {
+  .wb__body { grid-template-columns: 74px minmax(0, 1fr); }
+  .wb__navbtn { padding: 9px 8px; font-size: var(--fs-micro); }
+  .wb__panel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 40;
+    width: min(86vw, 320px);
+    margin: 0;
+    border-width: 0 0 0 1px;
+    border-radius: var(--r-md) 0 0 var(--r-md);
+    transform: translateX(103%);
+    transition: transform var(--dur-slow) var(--ease);
+    overflow: auto;
+    box-shadow: -18px 0 44px -22px rgba(0, 0, 0, 0.5);
+  }
+  :root[data-wb-panel="open"] .wb__panel { transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wb *, .wb { animation: none !important; transition: none !important; }
+}

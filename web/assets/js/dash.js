@@ -2679,5 +2679,15 @@
     });
   }
 
-  window.Dash = { open: open, close: close, refreshColors: refreshColors, toast: toast };
+  window.Dash = {
+    open: open,
+    close: close,
+    refreshColors: refreshColors,
+    toast: toast,
+    esc: esc,
+    decode: decodeText,
+    humanSize: humanSize,
+    showModal: showModal,
+    hideModal: hideModal
+  };
 })();
