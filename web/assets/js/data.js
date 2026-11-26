@@ -1077,6 +1077,101 @@
     return parseCSV(text);
   }
 
+  /* ---------- 普通表解析（分析工作台，不套业务模板） ---------- */
+
+  var RE_PLAIN_NUM = /^[-+]?(?:\d+(?:\.\d*)?|\.\d+)$/;
+
+  function plainNumber(v) {
+    if (typeof v === 'number') return isFinite(v) ? v : null;
+    var s = String(v == null ? '' : v).replace(/[\s\u00a5\uFFE5$,]/g, '');
+    if (!RE_PLAIN_NUM.test(s)) return null;
+    if (/^0\d/.test(s.replace(/^[-+]/, ''))) return null;
+    var n = parseFloat(s);
+    return isFinite(n) ? n : null;
+  }
+
+  function tableKind(values) {
+    var c = { number: 0, date: 0, datetime: 0, time: 0, text: 0 }, n = 0;
+    for (var i = 0; i < values.length && n < 60; i++) {
+      var s = values[i];
+      if (s == null || s === '') continue;
+      n++;
+      s = String(s).trim();
+      if (RE_DATETIME.test(s)) c.datetime++;
+      else if (RE_DATE.test(s)) c.date++;
+      else if (RE_TIME.test(s)) c.time++;
+      else if (plainNumber(s) !== null) c.number++;
+      else c.text++;
+    }
+    if (!n) return 'empty';
+    var family = c.date + c.datetime;
+    var kind = 'text', best = c.text;
+    if (family > best) { best = family; kind = c.datetime > c.date ? 'datetime' : 'date'; }
+    if (c.time > best) { best = c.time; kind = 'time'; }
+    if (c.number > best) { kind = 'number'; }
+    return kind;
+  }
+
+  var KIND_LABEL = {
+    number: '数值', date: '日期', datetime: '日期时间', time: '时刻',
+    text: '文本', empty: '全空'
+  };
+
+  function parseTable(text) {
+    var clean = String(text == null ? '' : text).replace(/^﻿/, '').replace(/\r\n?/g, '\n');
+    if (!clean.trim()) return { error: '文件内容为空，请确认导出是否完成' };
+    var delim = detectDelim(clean);
+    var recs = [];
+    var lines = clean.split('\n');
+    for (var i = 0; i < lines.length; i++) {
+      if (!/\S/.test(lines[i])) continue;
+      recs.push({ line: i + 1, cells: splitLine(lines[i], delim) });
+    }
+    if (recs.length < 2) return { error: '至少需要一行表头和一行数据，当前只读到 ' + recs.length + ' 行' };
+
+    var raw = recs[0].cells.map(function (h) { return h.trim(); });
+    var width = raw.length;
+    var seen = {};
+    var columns = raw.map(function (h, i) {
+      var name = h || '列 ' + (i + 1);
+      seen[name] = (seen[name] || 0) + 1;
+      if (seen[name] > 1) name += ' ' + seen[name];
+      return { id: 'c' + (i + 1), header: h, name: name, inferred: 'text', kind: 'text', missing: 0, sample: '' };
+    });
+
+    var rows = [];
+    var ragged = [];
+    for (var r = 1; r < recs.length; r++) {
+      var cells = recs[r].cells;
+      if (cells.length !== width) ragged.push({ line: recs[r].line, got: cells.length, want: width });
+      var row = [];
+      for (var j = 0; j < width; j++) row.push(cells[j] == null ? '' : cells[j].trim());
+      rows.push(row);
+    }
+
+    columns.forEach(function (col, i) {
+      var filled = 0;
+      var values = [];
+      for (var k = 0; k < rows.length; k++) {
+        values.push(rows[k][i]);
+        if (rows[k][i] !== '') filled++;
+      }
+      col.inferred = col.kind = tableKind(values);
+      col.missing = rows.length - filled;
+      col.sample = values.filter(function (v) { return v !== ''; })[0] || '';
+    });
+
+    return {
+      columns: columns,
+      rows: rows,
+      ragged: ragged,
+      delimiter: delim,
+      format: delim === '\t' ? 'TSV' : (delim === ',' ? 'CSV' : '分隔文本'),
+      rowCount: rows.length,
+      colCount: width
+    };
+  }
+
   /* ---------- 归一化 ---------- */
 
   function toNum(v) {
@@ -1471,6 +1566,9 @@
     seed: seed,
     enrich: enrich,
     parse: parse,
+    parseTable: parseTable,
+    plainNumber: plainNumber,
+    KIND_LABEL: KIND_LABEL,
     parseChunked: parseChunked,
     yieldTask: yieldTask,
     normalize: normalize,

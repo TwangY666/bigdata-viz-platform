@@ -338,6 +338,7 @@
 
     renderPlate(ds);
     var ready = isReady(ds);
+    if (window.Workbench) window.Workbench.onExample(id);
     if (ready) {
       window.Dash.open(ds);
       plate.hidden = true;
@@ -368,6 +369,7 @@
       optionEls[d.id].classList.remove('is-active');
     });
     if (window.Dash) window.Dash.close();
+    if (window.Workbench) window.Workbench.onClear();
     plate.hidden = true;
     plate.innerHTML = '';
     hint.hidden = false;
@@ -431,9 +433,9 @@
   var saved = null;
   try { saved = localStorage.getItem('console.dataset'); } catch (e) {}
   if (saved && DATASETS.some(function (d) { return d.id === saved; })) select(saved, false);
-  else select('grades');
 
   window.Catalog = {
+    select: select,
     focusSearch: function () { input.focus(); input.select(); },
     hasQuery: function () { return input.value.length > 0; },
     clearQuery: function () { input.value = ''; filter(); },

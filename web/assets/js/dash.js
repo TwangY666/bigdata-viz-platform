@@ -3479,7 +3479,17 @@
     Object.keys(state.cards).forEach(function (id) { drawCard(state.cards[id], false); });
   }
 
-  window.Dash = { open: open, close: close, refreshColors: refreshColors, toast: toast };
+  window.Dash = {
+    open: open,
+    close: close,
+    refreshColors: refreshColors,
+    toast: toast,
+    esc: esc,
+    decode: decodeText,
+    humanSize: humanSize,
+    showModal: showModal,
+    hideModal: hideModal
+  };
 
   applySiteText();
   renderAbout();

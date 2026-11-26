@@ -8,14 +8,14 @@
 <meta name="theme-color" content="#070C12">
 <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
 <link rel="stylesheet" href="/assets/css/shell.css">
+<link rel="stylesheet" href="/assets/css/workbench.css">
 <script>
 (function () {
   try {
     var root = document.documentElement;
     var saved = localStorage.getItem('console.theme');
-    var theme = saved === 'light' || saved === 'dark'
-      ? saved
-      : (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+    // 未手动选过主题时默认浅色（01 方案的浅色工作区），不跟随系统深色
+    var theme = saved === 'light' || saved === 'dark' ? saved : 'light';
     root.setAttribute('data-theme', theme);
     if (localStorage.getItem('console.grid') === 'off') root.setAttribute('data-grid', 'off');
     if (localStorage.getItem('console.rail') === 'open' && window.innerWidth >= 900) {
@@ -82,6 +82,10 @@
     </div>
 
     <div class="topbar__tools">
+      <button class="bar-btn bar-btn--accent" type="button" id="open-data-btn" title="打开本地数据文件">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V5M8 8.5l4-4 4 4"/><path d="M4.5 19h15"/></svg>
+        打开数据
+      </button>
       <button class="icon-btn" type="button" id="page-btn"
               aria-label="页面设置" title="页面设置 · 标题 / 介绍 / 关于">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5h16M4 10h10M4 14.5h16M4 19h7"/><circle cx="17.5" cy="18.5" r="2.4"/></svg>
@@ -145,10 +149,15 @@
         <span class="canvas__marks"></span>
       </div>
       <div class="canvas__grid" data-slot="canvas">
-        <div class="canvas__hint" id="canvas-hint">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"/><path d="M21 4v16"/></svg>
-          <p class="canvas__hint-title">从左侧目录选择一个数据集</p>
-          <p class="canvas__hint-sub">点击「数据集目录」或按 <kbd>/</kbd> 搜索 · 13 个候选 · 全部看板已就绪</p>
+        <div class="canvas__hint landing" id="canvas-hint">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V9M10 19V4M16 19v-8M22 19H2"/></svg>
+          <p class="canvas__hint-title">打开自己的表，选两个字段，马上看到一张能核对的图</p>
+          <p class="canvas__hint-sub">CSV / TSV / 分隔文本 · 表头原样保留，带前导零的编号不变形 · 只在当前页面解析，不上传、不保存</p>
+          <div class="landing__actions">
+            <button class="primary-btn" type="button" id="landing-open" data-autofocus>打开本地文件</button>
+            <button class="bar-btn" type="button" id="landing-example">试用示例数据</button>
+          </div>
+          <p class="landing__foot">想先看现成的看板？按 <kbd>/</kbd> 或点左上角「数据集目录」，13 个内置示例全部保留</p>
         </div>
         <section class="plate" id="plate" hidden aria-live="polite"></section>
       </div>
@@ -245,6 +254,96 @@
           </div>
           <div class="about__body" id="about-body"></div>
         </section>
+      </section>
+
+      <section class="wb" id="wb" hidden aria-label="分析工作台">
+        <header class="wb__head">
+          <div class="wb__lead">
+            <p class="wb__eyebrow"><span class="wb__eyebrow-dot" aria-hidden="true"></span>分析工作台 · 本地解析</p>
+            <h2 class="wb__title" id="wb-name"></h2>
+            <p class="wb__meta" id="wb-meta"></p>
+          </div>
+          <div class="wb__head-actions">
+            <button class="bar-btn" type="button" id="wb-open-btn" title="打开另一份本地数据文件">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V5M8 8.5l4-4 4 4"/><path d="M4.5 19h15"/></svg>
+              打开另一份文件
+            </button>
+            <button class="bar-btn bar-btn--accent" type="button" id="wb-panel-btn"
+                    aria-expanded="false" aria-controls="wb-panel" hidden>字段配置</button>
+          </div>
+        </header>
+
+        <div class="wb__body">
+          <nav class="wb__nav" aria-label="工作视图">
+            <button class="wb__navbtn" type="button" id="wb-view-report" aria-pressed="true">分析报表</button>
+            <button class="wb__navbtn" type="button" id="wb-view-detail" aria-pressed="false">数据明细</button>
+            <button class="wb__navbtn" type="button" id="wb-view-examples" aria-pressed="false">示例看板</button>
+          </nav>
+
+          <main class="wb__stage">
+            <p class="wb__notice" id="wb-notice" role="status" hidden></p>
+
+            <section class="wb__card" id="wb-report-card">
+              <header class="wb__card-head">
+                <div class="wb__card-titles">
+                  <h3 class="wb__chart-title" id="wb-title" tabindex="-1"></h3>
+                  <p class="wb__formula" id="wb-formula"></p>
+                </div>
+                <p class="wb__unit" id="wb-unit"></p>
+              </header>
+              <div class="wb__chart" id="wb-chart"></div>
+              <div class="wb__summary" id="wb-summary"></div>
+            </section>
+
+            <section class="wb__card" id="wb-detail-card" hidden>
+              <header class="wb__card-head">
+                <div class="wb__card-titles">
+                  <h3 class="wb__chart-title">数据明细</h3>
+                  <p class="wb__formula" id="wb-detail-meta"></p>
+                </div>
+              </header>
+              <p class="wb__filter-line" id="wb-filter-line" hidden>
+                <span id="wb-filter-line-text"></span>
+                <button class="wb__link" type="button" data-act="clear-filter">清除筛选</button>
+              </p>
+              <div class="wb__scroll" id="wb-detail"></div>
+            </section>
+          </main>
+
+          <aside class="wb__panel" id="wb-panel" aria-label="图表设置">
+            <h3 class="wb__panel-title" id="wb-panel-title">图表设置</h3>
+            <label class="ctl ctl--block wb__cfg">
+              <span class="ctl__label">分组</span>
+              <select class="ctl__input" id="wb-group"></select>
+            </label>
+            <label class="ctl ctl--block wb__cfg">
+              <span class="ctl__label">数值</span>
+              <select class="ctl__input" id="wb-measure"></select>
+            </label>
+            <label class="ctl ctl--block wb__cfg">
+              <span class="ctl__label">汇总方式</span>
+              <select class="ctl__input" id="wb-agg">
+                <option value="sum">求和</option>
+                <option value="avg">平均</option>
+              </select>
+            </label>
+            <div class="wb__filter">
+              <p class="wb__filter-head">
+                <span>筛选</span>
+                <button class="wb__link" type="button" id="wb-filter-clear">清除</button>
+              </p>
+              <label class="ctl ctl--block">
+                <span class="ctl__label">筛选字段</span>
+                <select class="ctl__input" id="wb-filter-col"></select>
+              </label>
+              <label class="ctl ctl--block">
+                <span class="ctl__label">值</span>
+                <select class="ctl__input" id="wb-filter-val"></select>
+              </label>
+            </div>
+            <p class="wb__panel-foot">数据仅保存在当前页面，刷新后需重新打开文件。</p>
+          </aside>
+        </div>
       </section>
     </main>
   </div>
@@ -607,9 +706,52 @@
   </div>
 </div>
 
+<div class="modal" id="wb-import" hidden>
+  <div class="modal__scrim" data-close="wb-import"></div>
+  <div class="modal__panel modal__panel--wide" role="dialog" aria-modal="true" aria-labelledby="wb-import-title">
+    <header class="modal__head">
+      <div class="modal__titles">
+        <p class="modal__eyebrow" id="wb-import-step">第一步 · 选择文件</p>
+        <h2 id="wb-import-title" tabindex="-1">打开自己的表</h2>
+        <p class="modal__sub" id="wb-import-sub">支持 CSV / TSV / 分隔文本 TXT · 自动识别 UTF-8 / GBK / UTF-16 · 不超过 64 MB / 30 万行 · 表头与单元格原样显示</p>
+      </div>
+      <button class="icon-btn" type="button" data-close="wb-import" aria-label="关闭导入">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </header>
+    <div class="modal__body">
+      <div id="wb-import-choose">
+        <div class="dropzone" id="wb-dropzone" role="button" tabindex="0" data-autofocus
+             aria-label="拖拽或点击选择数据文件">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V5M8 8.5l4-4 4 4"/><path d="M4.5 19h15"/></svg>
+          <p class="dropzone__title">拖拽文件到此处，或点击选择</p>
+          <p class="dropzone__sub">确认前会先给你看表头、样本和行数</p>
+        </div>
+        <p class="wb-import__note">带前导零的编号（如 00123）默认按文本保留；数值列也可手动改成文本。</p>
+      </div>
+      <div id="wb-import-preview" hidden>
+        <p class="upload__meta" id="wb-preview-meta"></p>
+        <div class="upload__map" id="wb-preview-cols"></div>
+        <div class="upload__table" id="wb-preview-table"></div>
+        <p class="upload__note" id="wb-preview-note"></p>
+        <label class="ctl ctl--block">
+          <span class="ctl__label">表名</span>
+          <input class="ctl__input" type="text" id="wb-preview-name" maxlength="40" autocomplete="off">
+        </label>
+        <div class="upload__actions">
+          <button class="primary-btn" type="button" id="wb-preview-confirm">进入工作台</button>
+          <button class="ghost-btn" type="button" id="wb-preview-again">重新选择</button>
+        </div>
+      </div>
+      <p class="upload__error" id="wb-import-error" role="alert" hidden></p>
+    </div>
+  </div>
+</div>
+
 <div class="toasts" id="toasts" aria-live="polite"></div>
 <div class="tip" id="tip" hidden></div>
 <input type="file" id="file-input" accept=".csv,.tsv,.json,.txt,text/csv,application/json" hidden>
+<input type="file" id="wb-file-input" accept=".csv,.tsv,.txt,text/csv,text/tab-separated-values,text/plain" hidden>
 
 <script src="/assets/js/data.js" defer></script>
 <script src="/assets/js/charts.js" defer></script>
@@ -617,6 +759,7 @@
 <script src="/assets/js/calc.js" defer></script>
 <script src="/assets/js/dash.js" defer></script>
 <script src="/assets/js/catalog.js" defer></script>
+<script src="/assets/js/workbench.js" defer></script>
 <script src="/assets/js/shell.js" defer></script>
 </body>
 </html>

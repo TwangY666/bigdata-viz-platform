@@ -69,6 +69,12 @@
       var m = Math.round(v);
       return ('0' + Math.floor(m / 60)).slice(-2) + ':' + ('0' + (m % 60)).slice(-2);
     }
+    if (mode === 'auto') {
+      /* 普通表数值：保留足以区分结果的小数，不缩写成 k/万 */
+      return new Intl.NumberFormat('zh-CN', {
+        maximumFractionDigits: Math.abs(v) >= 1 ? 2 : 4
+      }).format(v);
+    }
     var prefix = mode === 'money' ? '¥' : '';
     if (mode === 'sep' || mode === 'moneysep') {
       return (mode === 'moneysep' ? '¥' : '') + Math.round(v).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
